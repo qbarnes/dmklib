@@ -32,7 +32,7 @@ LDFLAGS = -g
 # -----------------------------------------------------------------------------
 
 PACKAGE = dmklib
-VERSION = 0.2
+VERSION = 0.3
 DISTNAME = $(PACKAGE)-$(VERSION)
 
 DATE := $(shell date +%Y.%m.%d)

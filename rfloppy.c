@@ -1030,11 +1030,15 @@ int main (int argc, char *argv[])
 	sector_length = (disk_info.track_info [0].density == DENSITY_FM) ? 128 : 256;
 
       disk_info.track_info [0].size_code = sector_length_to_size_code (sector_length);
+      disk_info.track_info [0].log_head = 0;
 
       for (i = 1; i < (disk_info.track_info_cylinders * MAX_HEADS); i++)
-	memcpy (& disk_info.track_info [i],
-		& disk_info.track_info [0],
-		sizeof (track_info_t));
+	{
+	  memcpy (& disk_info.track_info [i],
+		  & disk_info.track_info [0],
+		  sizeof (track_info_t));
+	  disk_info.track_info [i].log_head = (i & 1);
+	}
     }
   else
     {

@@ -1,9 +1,9 @@
 /*
  * rfloppy - read floppy disks
  *
- * $Id: rfloppy.c,v 1.18 2002/10/19 23:37:17 eric Exp $
+ * $Id: rfloppy.c,v 1.19 2003/11/01 01:31:45 eric Exp eric $
  *
- * Copyright 2002 Eric Smith.
+ * Copyright 2002, 2003 Eric Smith.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -51,6 +51,8 @@ int verbose = 0;
 
 
 /* rate codes are unfortunately NOT defined in fdreg.h */
+/* these rates are for MFM.  effective FM rates are half the MFM rates */
+#define FD_RATE_NOT_SET 255  /* flag value only, don't use in ioctl() */
 #define FD_RATE_250_KBPS 2
 #define FD_RATE_300_KBPS 1
 #define FD_RATE_500_KBPS 0
@@ -276,17 +278,23 @@ bool check_interleave_ids (track_info_t *track_info, id_info_t *id_info)
 }
 				   
 
-void print_interleave (FILE *f, track_info_t *track_info, id_info_t *id_info)
+void print_interleave (FILE *f,
+		       int cylinder,
+		       int head,
+		       track_info_t *track_info,
+		       id_info_t *id_info)
 {
   int i;
-  fprintf (f, "sector order:");
+  fprintf (f, "cyl %d head %d sector order:", cylinder, head);
   for (i = 0; i <= track_info->max_sector - track_info->min_sector; i++)
     fprintf (f, " %d", id_info [i].sector);
   fprintf (f, "\n");
 }
 
 
-bool check_interleave (track_info_t *track_info,
+bool check_interleave (int cylinder,
+		       int head,
+		       track_info_t *track_info,
 		       id_info_t *id_info, 
 		       int id_count)
 {
@@ -301,7 +309,7 @@ bool check_interleave (track_info_t *track_info,
 	status = check_interleave_ids (track_info, & id_info [i]);
 	if (status)
 	  {
-	    print_interleave (stdout, track_info, & id_info [i]);
+	    print_interleave (stdout, cylinder, head, track_info, & id_info [i]);
 	    return (true);
 	  }
       }
@@ -483,7 +491,7 @@ int try_track (int cylinder, int head,
   track_info->log_cylinder = id_info [0].cylinder;
   track_info->log_head = id_info [0].head;
 
-  check_interleave (track_info, id_info, MAX_ID_READ);
+  check_interleave (cylinder, head, track_info, id_info, MAX_ID_READ);
 
   return (true);
 }
@@ -588,13 +596,20 @@ void usage (void)
 	   "    -ds                   double sided\n"
 	   "    -sd                   single density (FM, default)\n"
 	   "    -dd                   double density (MFM)\n"
+	   "    -dr <data-rate>       data rate, 250, 300, or 500 kbps\n"
 	   "    -bc <sector-size>     sector size in bytes (default 128/256 for FM/MFM)\n"
 	   "    -sc <sector-count>    sector count (default 26)\n"
 	   "    -cc <cylinder-count>  cylinder count (default 77)\n"
+	   "    -dc                   double-step between cylinders, used to read 35 or 40\n"
+	   "                          cylinder disks in an 80 cylinder drive\n"
 	   "    -mr <retry-count>     maximum retries (default 5)\n",
 	   progname);
   fprintf (stderr, "If no disk characteristics are specified, the program will attempt\n"
 	   "to automatically determine them.\n");
+  fprintf (stderr, "The data rate for the -dr option should specified for double density.  When\n"
+	   "using single density, specify twice the actual rate.  For eight-inch drives,\n"
+	   "specify -dr 500.  The default is 250 Kbps for 300 RPM drives, and 300 Kbps\n"
+	   "for 360 RPM drives.\n");
   exit (1);
 }
 
@@ -788,19 +803,30 @@ int open_drive (disk_info_t *disk_info, char *fn)
       return (false);
     }
 
+  if (0 > ioctl (disk_info->floppy_dev, FDGETDRVPRM, & fdp))
+    fprintf (stderr, "can't get drive parameters\n");
+
   if (verbose >= 2)
     {
-      if (0 > ioctl (disk_info->floppy_dev, FDGETDRVPRM, & fdp))
-	fprintf (stderr, "can't get drive parameters\n");
-      else
-	{
-	  printf ("drive parameters:\n");
-	  printf ("cmos: %d\n", fdp.cmos);
-	  printf ("tracks: %d\n", fdp.tracks);
-	  printf ("rpm: %d\n", fdp.rps * 60);
-	}
+      printf ("drive parameters:\n");
+      printf ("cmos: %d\n", fdp.cmos);
+      printf ("tracks: %d\n", fdp.tracks);
+      printf ("rpm: %d\n", fdp.rps * 60);
     }
 
+  if (disk_info->data_rate == FD_RATE_NOT_SET)
+    {
+      switch (fdp.rps)
+	{
+	case 6:	disk_info->data_rate = FD_RATE_300_KBPS; break;
+	case 5:	disk_info->data_rate = FD_RATE_250_KBPS; break;
+	default:
+	  fprintf (stderr, "unknown drive type, data rate must be specified\n");
+	  return (false);
+	}
+      
+    }
+      
   if (! recalibrate (disk_info))
     {
       fprintf (stderr, "error recalibrating drive\n");
@@ -860,8 +886,7 @@ int main (int argc, char *argv[])
     DMK_IMAGE,  /* image_type */
     NULL,       /* dmk_h */
     NULL, /* image_f */
-
-    500,  /* data rate */
+    FD_RATE_NOT_SET,   /* must be changed later */
     77,   /* cylinder_count */
     1,    /* head_count */
     0,    /* double_step */
@@ -879,8 +904,8 @@ int main (int argc, char *argv[])
 
   progname = argv [0];
 
-  printf ("%s version $Revision: 1.18 $\n", progname);
-  printf ("Copyright 2002 Eric Smith <eric@brouhaha.com>\n");
+  printf ("%s version $Revision: 1.19 $\n", progname);
+  printf ("Copyright 2002, 2003 Eric Smith <eric@brouhaha.com>\n");
 
   while (argc > 1)
     {
@@ -908,6 +933,23 @@ int main (int argc, char *argv[])
 	    auto_flags &= ~ AUTO_TRY_DD;
 	  else if (strcmp (argv [1], "-dd") == 0)
 	    auto_flags &= ~ AUTO_TRY_SD;
+	  else if (strcmp (argv [1], "-dr") == 0)
+	    {
+	      if (argc < 3)
+		usage ();
+	      manual = 1;
+	      switch (atoi (argv [2]))
+		{
+		case 250: disk_info.data_rate = FD_RATE_250_KBPS; break;
+		case 300: disk_info.data_rate = FD_RATE_300_KBPS; break;
+		case 500: disk_info.data_rate = FD_RATE_500_KBPS; break;
+		default:  usage();
+		}
+	      argc--;
+	      argv++;
+	    }
+	  else if (strcmp (argv [1], "-dc") == 0)
+	    disk_info.double_step = 1;
 	  else if (strcmp (argv [1], "-bc") == 0)
 	    {
 	      if (argc < 3)
@@ -922,6 +964,7 @@ int main (int argc, char *argv[])
 	      if (argc < 3)
 		usage ();
 	      manual = 1;
+	      disk_info.track_info [0].min_sector = 1;
 	      disk_info.track_info [0].max_sector = atoi (argv [2]);
 	      argc--;
 	      argv++;
@@ -981,7 +1024,19 @@ int main (int argc, char *argv[])
   if (auto_all_cylinders)
     disk_info.track_info_cylinders = disk_info.cylinder_count;
 
-  if (! manual)
+  if (manual)
+    {
+      if (sector_length == 0)
+	sector_length = (disk_info.track_info [0].density == DENSITY_FM) ? 128 : 256;
+
+      disk_info.track_info [0].size_code = sector_length_to_size_code (sector_length);
+
+      for (i = 1; i < (disk_info.track_info_cylinders * MAX_HEADS); i++)
+	memcpy (& disk_info.track_info [i],
+		& disk_info.track_info [0],
+		sizeof (track_info_t));
+    }
+  else
     {
       printf ("Attempting automatic disk characteristics discovery.\n");
       fflush (stdout);
@@ -995,23 +1050,26 @@ int main (int argc, char *argv[])
 	  fprintf (stderr, "auto detected single side only\n");
 	  exit (2);
 	}
-      print_disk_info (stdout, & disk_info);
     }
 
   if (manual)
     {
-      if (sector_length == 0)
-	sector_length = (disk_info.track_info [0].density == DENSITY_FM) ? 128 : 256;
-
-      disk_info.track_info [0].size_code = sector_length_to_size_code (sector_length);
-
-      for (i = 1; i < (disk_info.track_info_cylinders * MAX_HEADS); i++)
-	memcpy (& disk_info.track_info [i],
-		& disk_info.track_info [0],
-		sizeof (track_info_t));
-      /* following is only for debugging the command parsing */
-      print_disk_info (stdout, & disk_info);
+      if ((auto_flags & AUTO_TRY_SD) && ! (auto_flags & AUTO_TRY_DD))
+	density = DENSITY_FM;
+      else if ((auto_flags & AUTO_TRY_DD) && ! (auto_flags & AUTO_TRY_SD))
+	density = DENSITY_MFM;
+      else
+	{
+	  fprintf (stderr, "density not specified?\n");
+	  exit (2);
+	}
+      for (i = 0; i < (disk_info.track_info_cylinders * MAX_HEADS); i++)
+	{
+	  disk_info.track_info [i].density = density;
+	}
     }
+  else
+    {
 
   density = DENSITY_FM;
   for (i = 0; i < (disk_info.track_info_cylinders * MAX_HEADS); i++)
@@ -1022,6 +1080,9 @@ int main (int argc, char *argv[])
       if (disk_info.track_info [i].density != DENSITY_FM)
 	density = DENSITY_MFM;
     }
+
+  /* following is only for debugging the command parsing */
+  print_disk_info (stdout, & disk_info);
 
   switch (disk_info.image_type)
     {

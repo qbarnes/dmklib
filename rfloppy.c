@@ -3,7 +3,7 @@
  *
  * Copyright 2002 Eric Smith.
  *
- * $Id: rfloppy.c,v 1.12 2002/08/30 05:54:19 eric Exp $
+ * $Id: rfloppy.c,v 1.13 2002/08/30 05:57:57 eric Exp $
  */
 
 
@@ -18,20 +18,12 @@
 #include <linux/fd.h>
 #include <linux/fdreg.h>
 
-
-#define USE_DMK
-
-
-#ifdef USE_DMK
 #include "libdmk.h"
-#endif /* USE_DMK */
 
 
 typedef enum {
   RAW_IMAGE,
-#ifdef USE_DMK
   DMK_IMAGE,
-#endif /* USE_DMK */
 } image_type_t;
 
 
@@ -73,9 +65,7 @@ typedef struct
   int floppy_dev;
 
   image_type_t image_type;
-#ifdef USE_DMK
   dmk_handle dmk_h;
-#endif /* USE_DMK */
   FILE *image_f;  /* for raw mode */
 
   int data_rate;
@@ -569,7 +559,6 @@ void usage (void)
 }
 
 
-#ifdef USE_DMK
 bool dmk_image_seek_and_format (disk_info_t *disk_info,
 				track_info_t *track_info,
 				int cylinder,
@@ -604,7 +593,6 @@ bool dmk_image_seek_and_format (disk_info_t *disk_info,
   free (sector_info);
   return (1);
 }
-#endif /* USE_DMK */
 
 
 void read_track (disk_info_t *disk_info,
@@ -615,12 +603,9 @@ void read_track (disk_info_t *disk_info,
   int retry_count;
   bool status;
   int sector;
-#ifdef USE_DMK
   sector_info_t sector_info;
-#endif /* USE_DMK */
   u8 buf [1024];
 
-#ifdef USE_DMK
   if (disk_info->image_type == DMK_IMAGE)
     {
       if (! dmk_image_seek_and_format (disk_info, track_info, cylinder, head))
@@ -630,7 +615,6 @@ void read_track (disk_info_t *disk_info,
 	  exit (2);
 	}
     }
-#endif /* USE_DMK */
 
   if (verbose == 1)
     {
@@ -677,7 +661,6 @@ void read_track (disk_info_t *disk_info,
 
       switch (disk_info->image_type)
 	{
-#ifdef USE_DMK
 	case DMK_IMAGE:
 	  sector_info.cylinder  = cylinder;
 	  sector_info.head      = head;
@@ -693,7 +676,6 @@ void read_track (disk_info_t *disk_info,
 	      /* exit (2); */
 	    }
 	  break;
-#endif /* USE_DMK */
 	case RAW_IMAGE:
 	  if (1 != fwrite (buf, 128 << track_info->size_code, 1,
 			   disk_info->image_f))
@@ -826,12 +808,8 @@ int main (int argc, char *argv[])
   {
     0,    /* floppy_dev */
 
-#ifdef USE_DMK
     DMK_IMAGE,  /* image_type */
     NULL,       /* dmk_h */
-#else
-    RAW_IMAGE,  /* image_type */
-#endif /* USE_DMK */
     NULL, /* image_f */
 
     500,  /* data rate */
@@ -851,7 +829,7 @@ int main (int argc, char *argv[])
 
   progname = argv [0];
 
-  printf ("%s version $Revision: 1.12 $\n", progname);
+  printf ("%s version $Revision: 1.13 $\n", progname);
   printf ("Copyright 2002 Eric Smith <eric@brouhaha.com>\n");
 
   while (argc > 1)
@@ -860,10 +838,8 @@ int main (int argc, char *argv[])
 	{
 	  if (strcmp (argv [1], "-raw") == 0)
 	    disk_info.image_type = RAW_IMAGE;
-#ifdef USE_DMK
 	  else if (strcmp (argv [1], "-dmk") == 0)
 	    disk_info.image_type = DMK_IMAGE;
-#endif /* USE_DMK */
 	  else if (strcmp (argv [1], "-d") == 0)
 	    {
 	      if ((drive_fn) || (argc < 3))
@@ -994,7 +970,6 @@ int main (int argc, char *argv[])
 
   switch (disk_info.image_type)
     {
-#ifdef USE_DMK
     case DMK_IMAGE:
       disk_info.dmk_h = dmk_create_image (image_fn,
 					  disk_info.head_count == 2,
@@ -1008,7 +983,6 @@ int main (int argc, char *argv[])
 	  exit (2);
 	}
       break;
-#endif /* USE_DMK */
     case RAW_IMAGE:
       disk_info.image_f = fopen (image_fn, "wb");
       if (! disk_info.image_f)
@@ -1025,11 +999,9 @@ int main (int argc, char *argv[])
 
   switch (disk_info.image_type)
     {
-#ifdef USE_DMK
     case DMK_IMAGE:
       dmk_close_image (disk_info.dmk_h);
       break;
-#endif /* USE_DMK */
     case RAW_IMAGE:
       fclose (disk_info.image_f);
       break;

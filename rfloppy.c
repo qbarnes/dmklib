@@ -3,7 +3,7 @@
  *
  * Copyright 2002 Eric Smith.
  *
- * $Id: rfloppy.c,v 1.15 2002/08/30 17:26:57 eric Exp $
+ * $Id: rfloppy.c,v 1.16 2002/08/31 17:45:54 eric Exp $
  */
 
 
@@ -46,17 +46,21 @@ typedef unsigned int u32;
 #define FD_READ_TRACK 0x42
 
 
-
-#define DENSITY_MFM 0
-#define DENSITY_FM 1
+typedef enum
+{
+  DENSITY_MFM,
+  DENSITY_FM
+} density_t;
 
 
 typedef struct
 {
-  int density;
-  int size_code;
-  int min_sector;
-  int max_sector;
+  density_t density;
+  u8 log_cylinder;
+  u8 log_head;
+  u8 size_code;
+  u8 min_sector;
+  u8 max_sector;
 } track_info_t;
 
 
@@ -385,7 +389,7 @@ int try_track (int cylinder, int head,
 	       track_info_t *track_info)
 {
   int i;
-  int density;
+  density_t density;
   int density_present [2];
   id_info_t id_info [MAX_ID_READ];
 
@@ -395,7 +399,7 @@ int try_track (int cylinder, int head,
       exit (2);
     }
 
-  for (density = 0; density <= 1; density++)
+  for (density = DENSITY_MFM; density <= DENSITY_FM; density++)
     {
       density_present [density] = 0;
       if (! (auto_flags & ((density == DENSITY_FM) ? AUTO_TRY_SD : AUTO_TRY_DD)))
@@ -409,16 +413,16 @@ int try_track (int cylinder, int head,
       density_present [density] = read_id (disk_info, density, head,
 					   & id_info [0]);
     }
-  if (density_present [0] && density_present [1])
+  if (density_present [DENSITY_MFM] && density_present [DENSITY_FM])
     {
       fprintf (stderr, "both FM and MFM data on cylinder %d head %d\n",
 	       cylinder, head);
       return (0);
     }
 
-  if (density_present [0])
+  if (density_present [DENSITY_MFM])
     track_info->density = DENSITY_MFM;
-  else if (density_present [1])
+  else if (density_present [DENSITY_FM])
     track_info->density = DENSITY_FM;
   else
     {
@@ -452,6 +456,15 @@ int try_track (int cylinder, int head,
       fprintf (stderr, "track contains discontiguous sector numbers\n");
       return (0);
     }
+
+  if (verbose >= 2)
+    {
+      printf ("ID fields are for cylinder %d head %d\n", id_info [0].cylinder,
+	      id_info [0].head);
+    }
+
+  track_info->log_cylinder = id_info [0].cylinder;
+  track_info->log_head = id_info [0].head;
 
   check_interleave (track_info, id_info, MAX_ID_READ);
 
@@ -515,7 +528,7 @@ bool read_sector (disk_info_t *disk_info,
   cmd.cmd[i++] = FD_READ & mask;
   cmd.cmd[i++] = head ? 4 : 0;
   cmd.cmd[i++] = cylinder; /* Cylinder value (to check with header) */
-  cmd.cmd[i++] = head ? 1 : 0; /* Head value (to check with header) */
+  cmd.cmd[i++] = track_info->log_head;  /* Head value (to check with header) */
   cmd.cmd[i++] = sector;
   cmd.cmd[i++] = track_info->size_code; /* sector length */
   cmd.cmd[i++] = track_info->max_sector; /* last sector number on a track */
@@ -808,7 +821,7 @@ int main (int argc, char *argv[])
 
   int manual = 0;
   int sector_length = 0;
-  int density;
+  density_t density;
   int auto_flags = AUTO_TRY_SS | AUTO_TRY_DS | AUTO_TRY_SD | AUTO_TRY_DD;
 
   int i;
@@ -838,7 +851,7 @@ int main (int argc, char *argv[])
 
   progname = argv [0];
 
-  printf ("%s version $Revision: 1.15 $\n", progname);
+  printf ("%s version $Revision: 1.16 $\n", progname);
   printf ("Copyright 2002 Eric Smith <eric@brouhaha.com>\n");
 
   while (argc > 1)

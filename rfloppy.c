@@ -3,7 +3,7 @@
  *
  * Copyright 2002 Eric Smith.
  *
- * $Id: rfloppy.c,v 1.5 2002/08/04 05:47:53 eric Exp $
+ * $Id: rfloppy.c,v 1.6 2002/08/05 09:51:38 eric Exp $
  */
 
 
@@ -20,6 +20,10 @@
 
 
 #include "libdmk.h"
+
+
+#undef CHECK_INTERLEAVE  /* unfortunately we can't consistently read
+			    consecutive sector IDs, so this doesn't work. */
 
 
 int verbose = 0;
@@ -49,8 +53,8 @@ int cylinder_count = 77;
 int head_count = 1;
 int double_step = 0;
 int data_rate = 500;  /* Kbps */
-int first_sector [2] = { 1, 1 };
-int last_sector [2] = { 26, 26 };
+int min_sector [2] = { 1, 1 };
+int max_sector [2] = { 26, 26 };
 int fm = 1;
 int max_retry = 5;
 int size_code = 0;  /* 128 bytes */
@@ -111,7 +115,7 @@ bool fd_read_track (int cylinder, int head,
   cmd.cmd[i++] = head ? 1 : 0; /* Head value (to check with header) */
   cmd.cmd[i++] = 0;
   cmd.cmd[i++] = size_code; /* 256 byte MFM sectors */
-  cmd.cmd[i++] = last_sector [head]; /* last sector number on a track */
+  cmd.cmd[i++] = max_sector [head]; /* last sector number on a track */
   cmd.cmd[i++] = 14; /* gap length */
   cmd.cmd[i++] = (sector_size < 255) ? sector_size : 0xff;
   cmd.cmd_count=i;
@@ -163,16 +167,68 @@ int read_id (int fm, int seek_head, id_info_t *id_info)
 
 #define MAX_ID_READ 100
 
+
+#ifdef CHECK_INTERLEAVE
+int check_interleave (id_info_t *id_info,
+		      int min_sector,
+		      int max_sector)
+{
+  int i;
+  int first_pos = -1;
+  int last_pos;
+  u8 found [256];
+  int count = 0;
+  int status = 1;
+
+  memset (found, 0, sizeof (found));
+
+  for (i = 0; i < MAX_ID_READ; i++)
+    if (id_info [i].sector == min_sector)
+      {
+	first_pos = i;
+	break;
+      }
+  if (first_pos < 0)
+    return (0);
+
+  last_pos = first_pos + (max_sector - min_sector) - 1;
+
+  for (i = first_pos; i <= last_pos; i++)
+    {
+      if (found [id_info [i].sector])
+	{
+	  /* already seen this one! */
+	}
+      else
+	{
+	  found [id_info [i].sector] = 1;
+	  count ++;
+	}
+    }
+  if (count != ((max_sector - min_sector) + 1))
+    {
+      fprintf (stderr, "didn't get full range of sector IDs in one revolution\n");
+      status = 0;
+    }
+  printf ("sector order:");
+  for (i = first_pos; i <= last_pos; i++)
+    printf (" %d", id_info [i].sector);
+  printf ("\n");
+  return (status);
+}
+#endif /* CHECK_INTERLEAVE */
+
+
 int try_track (int cylinder, int head,
 	       int *fm, int *sector_size,
-	       int *first_sector, int *last_sector)
+	       int *min_sector, int *max_sector)
 {
   int i, j;
   int density;
   int density_present [2];
   id_info_t id_info [MAX_ID_READ];
   int status = 1;
-  int min_sector, max_sector;
+  int min_s, max_s;
 
   for (density = 0; density <= 1; density++)
     density_present [density] = read_id (density, head, & id_info [0]);
@@ -200,7 +256,7 @@ int try_track (int cylinder, int head,
    * make sure all sectors have the same cylinder, head, and size,
    * and determine the minimum and maximum sector numbers
    */
-  min_sector = max_sector = id_info [0].sector;
+  min_s = max_s = id_info [0].sector;
   for (i = 1; i < MAX_ID_READ; i++)
     {
       if (id_info [i].cylinder != id_info [0].cylinder)
@@ -218,10 +274,10 @@ int try_track (int cylinder, int head,
 	  fprintf (stderr, "track contains a mix of sector sizes\n");
 	  status = 0;
 	}
-      if (id_info [i].sector < min_sector)
-	min_sector = id_info [i].sector;
-      if (id_info [i].sector > max_sector)
-	max_sector = id_info [i].sector;
+      if (id_info [i].sector < min_s)
+	min_s = id_info [i].sector;
+      if (id_info [i].sector > max_s)
+	max_s = id_info [i].sector;
     }
 
   if (! status)
@@ -229,7 +285,7 @@ int try_track (int cylinder, int head,
 
   /* now make sure all sector numbers from min_sector to max_sector are
      represented */
-  for (i = min_sector; i <= max_sector; i++)
+  for (i = min_s; i <= max_s; i++)
     {
       for (j = 0; j < MAX_ID_READ; j++)
 	{
@@ -243,32 +299,34 @@ int try_track (int cylinder, int head,
 	}
     }
       
-  /* $$$ figure out interleave */
+#ifdef CHECK_INTERLEAVE
+  check_interleave (id_info, min_s, max_s);
+#endif /* CHECK_INTERLEAVE */
 
   *sector_size = id_info [0].size;
-  *first_sector = min_sector;
-  *last_sector = max_sector;
+  *min_sector = min_s;
+  *max_sector = max_s;
 
   return (1);
 }
 
 
-int try_disk (int *ds, int *fm, int *sector_size, int *first_sector,
-	      int *last_sector)
+int try_disk (int *ds, int *fm, int *sector_size, int *min_sector,
+	      int *max_sector)
 {
   int density [2];
   int size [2];
   int status = 1;  /* assume success */
 
   if (! try_track (0, 0, & density [0], & size [0],
-		   & first_sector [0], & last_sector [0]))
+		   & min_sector [0], & max_sector [0]))
     {
       fprintf (stderr, "can't find data on cylinder 0, head 0\n");
       return (0);
     }
 
   if (! try_track (0, 1, & density [1], & size [1],
-		   & first_sector [1], & last_sector [1]))
+		   & min_sector [1], & max_sector [1]))
     {
       *ds = 0;
       *fm = density [0];
@@ -320,7 +378,7 @@ bool read_sector (int cylinder, int head, int sector,
   cmd.cmd[i++] = head ? 1 : 0; /* Head value (to check with header) */
   cmd.cmd[i++] = sector;
   cmd.cmd[i++] = size_code; /* 256 byte MFM sectors */
-  cmd.cmd[i++] = last_sector [head]; /* last sector number on a track */
+  cmd.cmd[i++] = max_sector [head]; /* last sector number on a track */
   cmd.cmd[i++] = 14; /* gap length */
   cmd.cmd[i++] = (sector_size < 255) ? sector_size : 0xff;
   cmd.cmd_count=i;
@@ -365,7 +423,7 @@ void read_track (int cylinder,
       printf ("%02d %d\r", cylinder, head);
       fflush (stdout);
     }
-  for (sector = first_sector [head]; sector <= last_sector [head]; sector++)
+  for (sector = min_sector [head]; sector <= max_sector [head]; sector++)
     {
       if (verbose == 2)
 	{
@@ -483,7 +541,7 @@ int main (int argc, char *argv[])
 
   progname = argv [0];
 
-  printf ("%s version $Revision: 1.5 $\n", progname);
+  printf ("%s version $Revision: 1.6 $\n", progname);
   printf ("Copyright 2002 Eric Smith <eric@brouhaha.com>\n");
 
   while (argc > 1)
@@ -519,7 +577,7 @@ int main (int argc, char *argv[])
 	    {
 	      if (argc < 3)
 		usage ();
-	      last_sector [0] = last_sector [1] = atoi (argv [2]);
+	      max_sector [0] = max_sector [1] = atoi (argv [2]);
 	      manual = 1;
 	      argc--;
 	      argv++;
@@ -581,7 +639,7 @@ int main (int argc, char *argv[])
       int i, ds;
       printf ("Attempting automatic disk characteristics discovery.\n");
       fflush (stdout);
-      if (! try_disk (& ds, & fm, & sector_size, first_sector, last_sector))
+      if (! try_disk (& ds, & fm, & sector_size, min_sector, max_sector))
 	{
 	  fprintf (stderr, "auto detect failed\n");
 	  exit (2);
@@ -593,7 +651,7 @@ int main (int argc, char *argv[])
 	      sector_size);
       for (i = 0; i <= ds; i++)
 	printf ("head %d sectors numbered from %d to %d\n",
-		i, first_sector [i], last_sector [i]);
+		i, min_sector [i], max_sector [i]);
       fflush (stdout);
     }
 

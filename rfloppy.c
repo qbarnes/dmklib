@@ -3,7 +3,7 @@
  *
  * Copyright 2002 Eric Smith.
  *
- * $Id: rfloppy.c,v 1.7 2002/08/07 08:01:56 eric Exp $
+ * $Id: rfloppy.c,v 1.8 2002/08/08 02:40:11 eric Exp $
  */
 
 
@@ -20,10 +20,6 @@
 
 
 #include "libdmk.h"
-
-
-#define CHECK_INTERLEAVE  /* unfortunately we can't consistently read
-			     consecutive sector IDs, so this doesn't work. */
 
 
 int verbose = 0;
@@ -209,11 +205,9 @@ int read_id (disk_info_t *disk_info, int fm, int seek_head, id_info_t *id_info)
 }
 
 
-#define MAX_ID_READ 100
-
-
-#ifdef CHECK_INTERLEAVE
-int check_interleave (id_info_t *id_info, track_info_t *track_info)
+bool check_interleave (track_info_t *track_info,
+		       id_info_t *id_info, 
+		       int id_count)
 {
   int i;
   int first_pos = -1;
@@ -224,7 +218,7 @@ int check_interleave (id_info_t *id_info, track_info_t *track_info)
 
   memset (found, 0, sizeof (found));
 
-  for (i = 0; i < MAX_ID_READ; i++)
+  for (i = 0; i < id_count; i++)
     if (id_info [i].sector == track_info->min_sector)
       {
 	first_pos = i;
@@ -258,18 +252,100 @@ int check_interleave (id_info_t *id_info, track_info_t *track_info)
   printf ("\n");
   return (status);
 }
-#endif /* CHECK_INTERLEAVE */
+
+
+/* find the minimum and maximum sector numbers */
+void find_min_max_sector (track_info_t *track_info,
+			  id_info_t *id_info,
+			  int id_count)
+{
+  int i;
+
+  track_info->min_sector = id_info [0].sector;
+  track_info->max_sector = id_info [0].sector;
+
+  for (i = 1; i < id_count; i++)
+    {
+      if (id_info [i].sector < track_info->min_sector)
+	track_info->min_sector = id_info [i].sector;
+      if (id_info [i].sector > track_info->max_sector)
+	track_info->max_sector = id_info [i].sector;
+    }
+}
+
+
+/*
+ * make sure all sectors have the same cylinder, head, and size,
+ * and determine the minimum and maximum sector numbers
+ */
+bool check_id_match (track_info_t *track_info,
+		     id_info_t *id_info,
+		     int id_count)
+{
+  int i;
+  bool status = 1;
+
+  for (i = 1; i < id_count; i++)
+    {
+      if (id_info [i].cylinder != id_info [0].cylinder)
+	{
+	  fprintf (stderr, "track contains a mix of cylinder numbers\n");
+	  status = 0;
+	}
+      if (id_info [i].head != id_info [0].head)
+	{
+	  fprintf (stderr, "track contains a mix of head numbers\n");
+	  status = 0;
+	}
+      if (id_info [i].size_code != id_info [0].size_code)
+	{
+	  fprintf (stderr, "track contains a mix of sector sizes\n");
+	  status = 0;
+	}
+      if (id_info [i].sector < track_info->min_sector)
+	track_info->min_sector = id_info [i].sector;
+      if (id_info [i].sector > track_info->max_sector)
+	track_info->max_sector = id_info [i].sector;
+    }
+  return (status);
+}
+
+
+/*
+ * Test whether all sectors in the range min_sector..max_sector are
+ * represented in the id_info array.
+ */
+bool all_sectors_present (track_info_t *track_info,
+			  id_info_t *id_info,
+			  int id_count)
+{
+  int i, j;
+
+  for (i = track_info->min_sector; i <= track_info->max_sector; i++)
+    {
+      for (j = 0; j < id_count; j++)
+	{
+	  if (id_info [j].sector == i)
+	    break;
+	}
+      if (j >= id_count)
+	return (0);
+    }
+  return (1);
+}
+
+
+#define MAX_ID_READ 100
 
 
 int try_track (int cylinder, int head,
 	       disk_info_t *disk_info,
 	       track_info_t *track_info)
 {
-  int i, j;
+  int i;
   int density;
   int density_present [2];
   id_info_t id_info [MAX_ID_READ];
-  int status = 1;
 
   if (! seek (disk_info, cylinder))
     {
@@ -315,57 +391,23 @@ int try_track (int cylinder, int head,
 
   track_info->size_code = id_info [0].size_code;
 
-  /*
-   * make sure all sectors have the same cylinder, head, and size,
-   * and determine the minimum and maximum sector numbers
-   */
-  track_info->min_sector = id_info [0].sector;
-  track_info->max_sector = id_info [0].sector;
-  for (i = 1; i < MAX_ID_READ; i++)
-    {
-      if (id_info [i].cylinder != id_info [0].cylinder)
-	{
-	  fprintf (stderr, "track contains a mix of cylinder numbers\n");
-	  status = 0;
-	}
-      if (id_info [i].head != id_info [0].head)
-	{
-	  fprintf (stderr, "track contains a mix of head numbers\n");
-	  status = 0;
-	}
-      if (id_info [i].size_code != id_info [0].size_code)
-	{
-	  fprintf (stderr, "track contains a mix of sector sizes\n");
-	  status = 0;
-	}
-      if (id_info [i].sector < track_info->min_sector)
-	track_info->min_sector = id_info [i].sector;
-      if (id_info [i].sector > track_info->max_sector)
-	track_info->max_sector = id_info [i].sector;
-    }
+  /* find the minimum and maximum sector numbers */
+  find_min_max_sector (track_info, id_info, MAX_ID_READ);
 
-  if (! status)
+  /* make sure all the sector IDs have the same cylinder, head, and size
+     code */
+  if (! check_id_match (track_info, id_info, MAX_ID_READ))
     return (0);
 
   /* now make sure all sector numbers from min_sector to max_sector are
      represented */
-  for (i = track_info->min_sector; i <= track_info->max_sector; i++)
+  if (! all_sectors_present (track_info, id_info, MAX_ID_READ))
     {
-      for (j = 0; j < MAX_ID_READ; j++)
-	{
-	  if (id_info [j].sector == i)
-	    break;
-	}
-      if (j >= MAX_ID_READ)
-	{
-	  fprintf (stderr, "track contains discontiguous sector numbers\n");
-	  return (0);
-	}
+      fprintf (stderr, "track contains discontiguous sector numbers\n");
+      return (0);
     }
-      
-#ifdef CHECK_INTERLEAVE
-  check_interleave (id_info, track_info);
-#endif /* CHECK_INTERLEAVE */
+
+  check_interleave (track_info, id_info, MAX_ID_READ);
 
   return (1);
 }
@@ -670,7 +712,7 @@ int main (int argc, char *argv[])
 
   progname = argv [0];
 
-  printf ("%s version $Revision: 1.7 $\n", progname);
+  printf ("%s version $Revision: 1.8 $\n", progname);
   printf ("Copyright 2002 Eric Smith <eric@brouhaha.com>\n");
 
   while (argc > 1)

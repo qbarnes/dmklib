@@ -3,7 +3,7 @@
  *
  * Copyright 2002 Eric Smith.
  *
- * $Id: rfloppy.c,v 1.14 2002/08/30 17:24:08 eric Exp $
+ * $Id: rfloppy.c,v 1.15 2002/08/30 17:26:57 eric Exp $
  */
 
 
@@ -77,12 +77,12 @@ typedef struct
 } disk_info_t;
 
 
-void print_track_info (track_info_t *track_info)
+void print_track_info (FILE *f, track_info_t *track_info)
 {
-  printf ("%s density, %d byte sectors numbered from %d to %d\n",
-	  (track_info->density == DENSITY_FM) ? "single" : "double",
-	  128 << track_info->size_code,
-	  track_info->min_sector, track_info->max_sector);
+  fprintf (f, "%s density, %d byte sectors numbered from %d to %d\n",
+	   (track_info->density == DENSITY_FM) ? "single" : "double",
+	   128 << track_info->size_code,
+	   track_info->min_sector, track_info->max_sector);
 }
 
 
@@ -255,13 +255,13 @@ bool check_interleave_ids (track_info_t *track_info, id_info_t *id_info)
 }
 				   
 
-void print_interleave (track_info_t *track_info, id_info_t *id_info)
+void print_interleave (FILE *f, track_info_t *track_info, id_info_t *id_info)
 {
   int i;
-  printf ("sector order:");
+  fprintf (f, "sector order:");
   for (i = 0; i <= track_info->max_sector - track_info->min_sector; i++)
-    printf (" %d", id_info [i].sector);
-  printf ("\n");
+    fprintf (f, " %d", id_info [i].sector);
+  fprintf (f, "\n");
 }
 
 
@@ -280,7 +280,7 @@ bool check_interleave (track_info_t *track_info,
 	status = check_interleave_ids (track_info, & id_info [i]);
 	if (status)
 	  {
-	    print_interleave (track_info, & id_info [i]);
+	    print_interleave (stdout, track_info, & id_info [i]);
 	    return (1);
 	  }
       }
@@ -772,16 +772,16 @@ int open_drive (disk_info_t *disk_info, char *fn)
 }
 
 
-void print_disk_info (disk_info_t *disk_info)
+void print_disk_info (FILE *f, disk_info_t *disk_info)
 {
   int cylinder, head;
 
-  printf ("%s sided\n", (disk_info->head_count - 1) ? "double" : "single");
+  fprintf (f, "%s sided\n", (disk_info->head_count - 1) ? "double" : "single");
   for (cylinder = 0; cylinder <= 1; cylinder++)
     for (head = 0; head < disk_info->head_count; head++)
       {
-	printf ("cylinder %d head %d: ", cylinder, head);
-	print_track_info (& disk_info->track_info [cylinder * 2 + head]);
+	fprintf (f, "cylinder %d head %d: ", cylinder, head);
+	print_track_info (f, & disk_info->track_info [cylinder * 2 + head]);
       }
 }
 
@@ -838,7 +838,7 @@ int main (int argc, char *argv[])
 
   progname = argv [0];
 
-  printf ("%s version $Revision: 1.14 $\n", progname);
+  printf ("%s version $Revision: 1.15 $\n", progname);
   printf ("Copyright 2002 Eric Smith <eric@brouhaha.com>\n");
 
   while (argc > 1)
@@ -949,7 +949,7 @@ int main (int argc, char *argv[])
 	  fprintf (stderr, "auto detected single side only\n");
 	  exit (2);
 	}
-      print_disk_info (& disk_info);
+      print_disk_info (stdout, & disk_info);
     }
 
   if (manual)
@@ -964,7 +964,7 @@ int main (int argc, char *argv[])
 		& disk_info.track_info [0],
 		sizeof (track_info_t));
       /* following is only for debugging the command parsing */
-      print_disk_info (& disk_info);
+      print_disk_info (stdout, & disk_info);
     }
 
   density = DENSITY_FM;

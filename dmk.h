@@ -3,8 +3,11 @@
  *
  * Copyright 2002 Eric Smith.
  *
- * $Id: dmk.h,v 1.1 2002/08/06 07:29:59 eric Exp $
+ * $Id: dmk.h,v 1.2 2002/08/08 09:00:34 eric Exp $
  */
+
+
+#define DMK_HEADER_LENGTH 16
 
 typedef struct
 {
@@ -42,4 +45,8 @@ typedef struct
 #define DMK_IDAM_POINTER_MFM_BIT  15
 #define DMK_IDAM_POINTER_MFM_MASK (1 << DMK_IDAM_POINTER_MFM_BIT)
 
+#define DMK_IDAM_POINTER_RSV_BIT  14
+#define DMK_IDAM_POINTER_RSV_MASK (1 << DMK_IDAM_POINTER_RSV_BIT)
 
+#define DMK_IDAM_POINTER_FLAGS_MASK (DMK_IDAM_POINTER_MFM_MASK | \
+				     DMK_IDAM_POINTER_RSV_MASK)

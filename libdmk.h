@@ -3,7 +3,7 @@
  *
  * Copyright 2002 Eric Smith.
  *
- * $Id: libdmk.h,v 1.2 2002/08/08 05:46:34 eric Exp $
+ * $Id: libdmk.h,v 1.3 2002/08/08 09:00:34 eric Exp $
  */
 
 
@@ -55,7 +55,11 @@ dmk_handle dmk_create_image (char *fn,
  */
 
 
-dmk_handle dmk_open_image (char *fn);
+dmk_handle dmk_open_image (char *fn,
+			   int write_enable,
+			   int *ds,
+			   int *cylinders,
+			   int *dd);
 
 int dmk_close_image (dmk_handle h);
 
@@ -71,18 +75,13 @@ int dmk_format_track (dmk_handle h,
 		      sector_info_t *sector_info);
 
 
+int dmk_read_id (dmk_handle h,
+		 sector_info_t *sector_info);
+
 int dmk_read_sector (dmk_handle h,
-		     sector_mode_t mode,
-		     int log_cylinder,
-		     int log_side,
-		     int log_sector,
-		     int size_code,
+		     sector_info_t *sector_info,
 		     uint8_t *data);
 
 int dmk_write_sector (dmk_handle h,
-		      sector_mode_t mode,
-		      int log_cylinder,
-		      int log_side,
-		      int log_sector,
-		      int size_code,
+		      sector_info_t *sector_info,
 		      uint8_t *data);

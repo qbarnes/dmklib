@@ -3,7 +3,7 @@
  *
  * Copyright 2002 Eric Smith.
  *
- * $Id: libdmk.c,v 1.2 2002/08/08 05:46:34 eric Exp $
+ * $Id: libdmk.c,v 1.3 2002/08/08 09:00:34 eric Exp $
  */
 
 
@@ -19,7 +19,9 @@
 
 typedef struct
 {
-  int dirty;  /* boolean */
+  int resident;  /* boolean */
+  int dirty;     /* boolean */
+  uint8_t  mfm_sector   [DMK_MAX_SECTOR];
   uint16_t idam_pointer [DMK_MAX_SECTOR];
   uint8_t *buf;
 } track_state_t;
@@ -27,6 +29,9 @@ typedef struct
 struct dmk_state
 {
   FILE *f;
+
+  int new_image;  /* boolean */
+  int writable;   /* boolean */
 
   /* parameters specified by user */
   int ds;    /* disk is double sided */
@@ -65,11 +70,30 @@ static void compute_crc (dmk_handle h, uint8_t data)
   uint16_t d2 = data << 8;
   for (i = 0; i < 8; i++)
     {
-      h->crc = (h->crc << 1) | (((h->crc ^ d2) & 0x8000) ? 0x1021 : 0);
+      h->crc = (h->crc << 1) ^ ((((h->crc ^ d2) & 0x8000) ? 0x1021 : 0));
       d2 <<= 1;
     }
 }
 
+
+/* should never happen!  sectors aren't allowed to wrap around. */
+static void wrap_p (dmk_handle h)
+{
+#if 0
+  h->p = 0;
+#else
+  fprintf (stderr, "libdmk internal error 1\n");
+  exit (2);
+#endif
+}
+
+
+static inline void inc_p (dmk_handle h)
+{
+  h->p++;
+  if (h->p >= h->track_length)
+    wrap_p (h);
+}
 
 static void read_buf (dmk_handle h,
 		      int len,
@@ -78,9 +102,10 @@ static void read_buf (dmk_handle h,
   uint8_t b;
   while (len--)
     {
-      b = h->cur_track->buf [(h->p)++];
+      b = h->cur_track->buf [h->p];
+      inc_p (h);
       if (h->dd && (h->cur_mode == DMK_FM))
-	(h->p)++;
+	inc_p (h);
       compute_crc (h, b);
       *(data++) = b;
     }
@@ -111,12 +136,19 @@ static void write_buf (dmk_handle h,
 		       int len,
 		       uint8_t *data)
 {
+  if (! h->writable)
+    return;  /* ideally we wouldn't get this far */
+  h->cur_track->dirty = 1;
   while (len--)
     {
       compute_crc (h, *data);
-      h->cur_track->buf [(h->p)++] = *data;
+      h->cur_track->buf [h->p] = *data;
+      inc_p (h);
       if (h->dd && (h->cur_mode == DMK_FM))
-	h->cur_track->buf [(h->p)++] = *data;
+	{
+	  h->cur_track->buf [h->p] = *data;
+	  inc_p (h);
+	}
       data++;
     }
 }
@@ -141,6 +173,66 @@ static void write_crc (dmk_handle h)
 }
 
 
+dmk_handle dmk_open_image (char *fn,
+			   int write_enable,
+			   int *ds,
+			   int *cylinders,
+			   int *dd)
+{
+  dmk_handle h;
+
+  h = calloc (1, sizeof (struct dmk_state));
+  if (! h)
+    goto fail;
+
+  h->f = fopen (fn, write_enable ? "r+" : "rb");
+  if (! h->f)
+    goto fail;
+
+  /* $$$ read DMK header */
+
+  /* $$$ if write requested, make sure the file isn't locked */
+
+  h->writable = write_enable;
+
+  /* change these to use the header */
+#if 0
+  h->ds = ???;
+  h->cylinders = ???;
+  h->dd = ???;
+  h->track_length = ???:
+#endif
+
+  *ds = h->ds;
+  *cylinders = h->cylinders;
+  *dd = h->dd;
+
+#if 0
+  /* could guess, but why bother */
+  h->rpm = rpm;
+  h->rate = rate;
+#endif
+
+  h->track = calloc (h->cylinders * (h->ds + 1), sizeof (track_state_t));
+  if (! h->track)
+    goto fail;
+
+  /* 
+   * Make sure the first seek will do the right thing, by setting
+   * the current position to a non-existent track
+   */
+  h->cur_cylinder = -1;
+  h->cur_head = -1;
+
+  return (h);
+
+ fail:
+  if (h)
+    free (h);
+  return (NULL);
+}
+
+
 dmk_handle dmk_create_image (char *fn,
 			     int ds,    /* boolean */
 			     int cylinders,
@@ -157,6 +249,9 @@ dmk_handle dmk_create_image (char *fn,
   h->f = fopen (fn, "wb");
   if (! h->f)
     goto fail;
+
+  h->new_image = 1;
+  h->writable = 1;
 
   h->ds = ds;
   h->cylinders = cylinders;
@@ -177,10 +272,20 @@ dmk_handle dmk_create_image (char *fn,
   h->cur_cylinder = -1;
   h->cur_head = -1;
 
+  return (h);
+
  fail:
   if (h)
     free (h);
   return (NULL);
+}
+
+
+int dmk_image_file_seek_track (dmk_handle h, int cylinder, int head)
+{
+  int pos = DMK_HEADER_LENGTH + (((h->ds + 1) * cylinder + head) *
+				 ((2 * DMK_MAX_SECTOR) + h->track_length));
+  return (0 <= fseek (h->f, pos, SEEK_SET));
 }
 
 
@@ -190,29 +295,77 @@ int dmk_close_image (dmk_handle h)
   track_state_t *track;
   uint8_t b;
 
-  /* $$$ write DMK header */
+  if (! h->writable)
+    goto done;
+
+  if (h->new_image)
+    {
+      uint8_t dmk_header [DMK_HEADER_LENGTH];
+
+      memset (dmk_header, 0, DMK_HEADER_LENGTH);
+      dmk_header [0] = 0x00;  /* unprotected */
+      dmk_header [1] = h->cylinders;
+      dmk_header [2] = h->track_length & 0xff;
+      dmk_header [3] = h->track_length >> 8;
+      dmk_header [4] = 0x00;  /* flags */
+      if (! h->ds)
+	dmk_header [4] |= DMK_FLAG_SS_MASK;
+      if (! h->dd)
+	dmk_header [4] |= DMK_FLAG_SD_MASK;
+    
+      /* note that we should still be positioned to the start of the file */
+      if (1 != fwrite (dmk_header, sizeof (dmk_header), 1, h->f))
+	{
+	  fprintf (stderr, "error writing DMK header\n");
+	  return (0);
+	}
+    }
 
   for (cylinder = 0; cylinder < h->cylinders; cylinder++)
     for (head = 0; head <= h->ds; head++)
       {
-	track = & h->track [2 * cylinder + head];
+	track = & h->track [(h->ds + 1) * cylinder + head];
 
-	/* write IDAM offsets */
-	for (sector = 0; sector < DMK_MAX_SECTOR; sector++)
+	if (track->buf && track->dirty)
 	  {
-	    b = track->idam_pointer [sector] & 0xff;
-	    if (1 != fwrite (& b, 1, 1, h->f))
-	      return (0);
-	    b = track->idam_pointer [sector] >> 8;
-	    if (1 != fwrite (& b, 1, 1, h->f))
-	      return (0);
-	  }
+	    if (! dmk_image_file_seek_track (h, cylinder, head))
+	      {
+		fprintf (stderr, "error seeking image file\n");
+		return (0);
+	      }
+	    /* write IDAM offsets */
+	    for (sector = 0; sector < DMK_MAX_SECTOR; sector++)
+	      {
+		int idam_ptr = track->idam_pointer [sector];
+		if (track->mfm_sector [sector])
+		  idam_ptr |= DMK_IDAM_POINTER_MFM_MASK;
+		b = idam_ptr & 0xff;
+		if (1 != fwrite (& b, 1, 1, h->f))
+		  {
+		    fprintf (stderr, "error writing image file\n");
+		    return (0);
+		  }
+		b = idam_ptr >> 8;
+		if (1 != fwrite (& b, 1, 1, h->f))
+		  {
+		    fprintf (stderr, "error writing image file\n");
+		    return (0);
+		  }
+	      }
 
-	/* write track data */
-	if (1 != fwrite (track->buf, h->track_length, 1, h->f))
-	  return (0);
+	    /* write track data */
+	    if (1 != fwrite (track->buf, h->track_length, 1, h->f))
+	      {
+		fprintf (stderr, "error writing image file\n");
+		return (0);
+	      }
+	    track->dirty = 0;
+	  }
+	if (track->buf)
+	  free (track->buf);
       }
 
+ done:
   fclose (h->f);
   free (h);
   return (1);
@@ -224,6 +377,7 @@ int dmk_seek (dmk_handle h,
 	      int head)
 {
   track_state_t *new_track;
+  int i;
 
   if (cylinder > h->cylinders)
     return (0);
@@ -235,15 +389,52 @@ int dmk_seek (dmk_handle h,
       (head == h->cur_head))
     return (1);  /* already there */
 
-  new_track = & h->track [2 * cylinder + head];
+  new_track = & h->track [(h->ds + 1) * cylinder + head];
 
   if (! new_track->buf)
     {
       new_track->buf = calloc (1, h->track_length);
       if (! new_track->buf)
 	return (0);
-      /* $$$ virgin image: fill the new track with FFs */
-      /* $$$ existing image: read the track from the image file */
+      if (h->new_image)
+	{
+	  /* virgin image: fill the new track with FFs */
+	  for (i = 0; i < h->track_length; i++)
+	    new_track->buf [i] = 0xff;
+	}
+      else
+	{
+	  /* existing image: read the track from the image file */
+	  if (! dmk_image_file_seek_track (h, cylinder, head))
+	    {
+	      fprintf (stderr, "error seeking image file\n");
+	      exit (2);
+	    }
+	  for (i = 0; i < DMK_MAX_SECTOR; i++)
+	    {
+	      uint8_t d [2];
+	      uint16_t idam_ptr;
+	      if (1 != fread (d, 2, 1, h->f))
+		{
+		  fprintf (stderr, "error reading image file\n");
+		  exit (2);
+		}
+	      idam_ptr = d [1] << 8 | d [0];
+	      if (idam_ptr & DMK_IDAM_POINTER_MFM_MASK)
+		{
+		  new_track->mfm_sector [i] = 1;
+		  idam_ptr &= ~ DMK_IDAM_POINTER_FLAGS_MASK;
+		}
+	      else
+		new_track->mfm_sector [i] = 0;
+	      new_track->idam_pointer [i] = idam_ptr;
+	    }
+	  if (1 != fread (new_track->buf, h->track_length, 1, h->f))
+	    {
+	      fprintf (stderr, "error reading image file\n");
+	      exit (2);
+	    }
+	}
     }
 
   h->cur_cylinder = cylinder;
@@ -301,6 +492,26 @@ static int write_data_field (dmk_handle h,
 }
 
 
+static int read_data_field (dmk_handle h,
+			    sector_info_t *sector_info,
+			    uint8_t *data)
+{
+  /* $$$ is there a data mark with ? bytes? */
+
+  init_crc (h);
+  if (sector_info->mode == DMK_MFM)
+    {
+      /* In MFM, the three A1 bytes are included in the CRC */
+      compute_crc (h, 0xa1);
+      compute_crc (h, 0xa1);
+      compute_crc (h, 0xa1);
+    }
+  read_buf_byte (h);  /* eat data mark */
+  read_buf (h, 128 << sector_info->size_code, data);
+  return (check_crc (h));
+}
+
+
 int dmk_format_track (dmk_handle h,
 		      sector_mode_t mode,
 		      int sector_count,
@@ -340,12 +551,19 @@ int dmk_format_track (dmk_handle h,
 
 	  /* ID address mark */
           h->cur_track->idam_pointer [sector] = h->p;
+	  h->cur_track->mfm_sector [sector] = 0;
 	  init_crc (h);
+	  printf ("initial crc: %04x\n", h->crc);
 	  write_buf_const (h, 1, 0xfe);
+	  printf ("after AM: %04x\n", h->crc);
 	  write_buf_const (h, 1, sector_info [sector].cylinder);
+	  printf ("after cyl %02x: %04x\n", sector_info [sector].cylinder, h->crc);
 	  write_buf_const (h, 1, sector_info [sector].head);
+	  printf ("after head %02x: %04x\n", sector_info [sector].head, h->crc);
 	  write_buf_const (h, 1, sector_info [sector].sector);
+	  printf ("after sector %02x: %04x\n", sector_info [sector].sector, h->crc);
 	  write_buf_const (h, 1, sector_info [sector].size_code);
+	  printf ("after size code %02x: %04x\n", sector_info [sector].size_code, h->crc);
 	  write_crc (h);
 
 	  if (sector_info [sector].write_data)
@@ -386,7 +604,8 @@ int dmk_format_track (dmk_handle h,
 	  /* ID address mark */
 	  init_crc (h);
 	  write_buf_const (h,  3, 0xa1);  /* missing clock between bits 4 and 5 */
-          h->cur_track->idam_pointer [sector] = h->p | DMK_IDAM_POINTER_MFM_MASK;
+          h->cur_track->idam_pointer [sector] = h->p;
+	  h->cur_track->mfm_sector [sector] = 1;
 	  write_buf_const (h, 1, 0xfe);
 	  write_buf_const (h, 1, sector_info [sector].cylinder);
 	  write_buf_const (h, 1, sector_info [sector].head);
@@ -481,30 +700,35 @@ static int find_address_mark (dmk_handle h,
 }
 
 
+int dmk_read_id (dmk_handle h,
+		 sector_info_t *sector_info)
+{
+  /* $$$ */
+  return (0);
+}
+
+
+int dmk_read_sector (dmk_handle h,
+		     sector_info_t *sector_info,
+		     uint8_t *data)
+{
+  /* find address mark */
+  if (! find_address_mark (h, sector_info))
+    return (0);
+
+  return (read_data_field (h, sector_info, data));
+}
+
+
 int dmk_write_sector (dmk_handle h,
-		      sector_mode_t mode,
-		      int log_cylinder,
-		      int log_side,
-		      int log_sector,
-		      int size_code,
+		      sector_info_t *sector_info,
 		      uint8_t *data)
 {
-  sector_info_t sector_info;
-
-  sector_info.cylinder  = log_cylinder;
-  sector_info.head      = log_side;
-  sector_info.sector    = log_sector;
-  sector_info.size_code = size_code;
-  sector_info.mode      = mode;
-
   /* find address mark */
-  if (! find_address_mark (h, & sector_info));
+  if (! find_address_mark (h, sector_info))
     return (0);
 
   /* $$$ skip ahead a few bytes */
-
-  if (! write_data_field (h, & sector_info, 0, data))
-    return (0);
-
-  return (1);
+  
+  return (write_data_field (h, sector_info, 0, data));
 }

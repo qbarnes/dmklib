@@ -3,7 +3,7 @@
  *
  * Copyright 2002 Eric Smith.
  *
- * $Id: rfloppy.c,v 1.9 2002/08/08 02:59:18 eric Exp $
+ * $Id: rfloppy.c,v 1.10 2002/08/08 09:00:34 eric Exp $
  */
 
 
@@ -19,7 +19,12 @@
 #include <linux/fdreg.h>
 
 
+#define USE_DMK
+
+
+#ifdef USE_DMK
 #include "libdmk.h"
+#endif /* USE_DMK */
 
 
 int verbose = 0;
@@ -42,6 +47,10 @@ typedef unsigned int u32;
 
 
 
+#define DENSITY_MFM 0
+#define DENSITY_FM 1
+
+
 typedef struct
 {
   int density;
@@ -54,7 +63,11 @@ typedef struct
 typedef struct
 {
   int floppy_dev;
+#ifdef USE_DMK
+  dmk_handle dmk_h;
+#else
   FILE *image_f;
+#endif /* USE_DMK */
   int data_rate;
   int cylinder_count;
   int head_count;
@@ -67,7 +80,7 @@ typedef struct
 void print_track_info (track_info_t *track_info)
 {
   printf ("%s density, %d byte sectors numbered from %d to %d\n",
-	  track_info->density ? "single" : "double",
+	  (track_info->density == DENSITY_FM) ? "single" : "double",
 	  128 << track_info->size_code,
 	  track_info->min_sector, track_info->max_sector);
 }
@@ -368,7 +381,8 @@ int try_track (int cylinder, int head,
     {
       if (verbose >= 2)
 	{
-	  fprintf (stderr, "checking for %s density\n", density ? "single" : "double");
+	  fprintf (stderr, "checking for %s density\n",
+		   (density == DENSITY_FM) ? "single" : "double");
 	  fflush (stderr);
 	}
       density_present [density] = read_id (disk_info, density, head,
@@ -382,9 +396,9 @@ int try_track (int cylinder, int head,
     }
 
   if (density_present [0])
-    track_info->density = 0;
+    track_info->density = DENSITY_MFM;
   else if (density_present [1])
-    track_info->density = 1;
+    track_info->density = DENSITY_FM;
   else
     {
       fprintf (stderr, "neither FM nor MFM data on cylinder %d head %d\n",
@@ -465,7 +479,7 @@ bool read_sector (disk_info_t *disk_info,
   u8 mask = 0x5f;
   int sector_length = 128 << track_info->size_code;
 
-  if (track_info->density)
+  if (track_info->density == DENSITY_FM)
     mask &= ~0x40;
 
   cmd.data = buf;
@@ -527,6 +541,44 @@ void usage (void)
 }
 
 
+#ifdef USE_DMK
+bool image_seek_and_format (disk_info_t *disk_info,
+			    track_info_t *track_info,
+			    int cylinder,
+			    int head)
+{
+  int sector_count = (track_info->max_sector - track_info->min_sector) + 1;
+  sector_info_t *sector_info;
+  int i;
+
+  sector_info = calloc (sector_count, sizeof (sector_info_t));
+  if (! sector_info)
+    return (0);
+
+  for (i = 0; i < sector_count; i++)
+    {
+      sector_info [i].cylinder   = cylinder;
+      sector_info [i].head       = head;
+      sector_info [i].sector     = track_info->min_sector + i;
+      sector_info [i].size_code  = track_info->size_code;
+      sector_info [i].mode       = (track_info->density == DENSITY_FM) ? DMK_FM : DMK_MFM;
+      sector_info [i].write_data = 0;
+      sector_info [i].data_value = 0xe5;  /* not used */
+    }
+
+  if (! dmk_seek (disk_info->dmk_h, cylinder, head))
+    return (0);
+  if (! dmk_format_track (disk_info->dmk_h,
+			  (track_info->density == DENSITY_FM) ? DMK_FM : DMK_MFM,
+			  (track_info->max_sector - track_info->min_sector) + 1,
+			  sector_info))
+    return (0);
+  free (sector_info);
+  return (1);
+}
+#endif /* USE_DMK */
+
+
 void read_track (disk_info_t *disk_info,
 		 int cylinder,
 		 int head,
@@ -535,7 +587,19 @@ void read_track (disk_info_t *disk_info,
   int retry_count;
   bool status;
   int sector;
-  u8 buf [16384];
+#ifdef USE_DMK
+  sector_info_t sector_info;
+#endif /* USE_DMK */
+  u8 buf [1024];
+
+#ifdef USE_DMK
+  if (! image_seek_and_format (disk_info, track_info, cylinder, head))
+    {
+      fprintf (stderr, "error seeking or formatting cyl %d head %d in DMK image\n",
+	       cylinder, head);
+      exit (2);
+    }
+#endif /* USE_DMK */
 
   if (verbose == 1)
     {
@@ -579,12 +643,27 @@ void read_track (disk_info_t *disk_info,
 	  exit (2);
 #endif
 	}
+#ifdef USE_DMK
+      sector_info.cylinder  = cylinder;
+      sector_info.head      = head;
+      sector_info.sector    = sector;
+      sector_info.size_code = track_info->size_code;
+      sector_info.mode      = (track_info->density == DENSITY_FM) ? DMK_FM : DMK_MFM;
+      if (! dmk_write_sector (disk_info->dmk_h,
+			      & sector_info,
+			      buf))
+	{
+	  fprintf (stderr, "error writing image file\n");
+	  exit (2);
+	}
+#else
       if (1 != fwrite (buf, 128 << track_info->size_code, 1,
 		       disk_info->image_f))
 	{
-	  fprintf (stderr, "error writing output file\n");
+	  fprintf (stderr, "error writing image file\n");
 	  exit (2);
 	}
+#endif /* USE_DMK */
     }
 }
 
@@ -699,6 +778,7 @@ int main (int argc, char *argv[])
 
   int manual = 0;
   int sector_length;
+  int density;
 
   int i;
 
@@ -713,7 +793,7 @@ int main (int argc, char *argv[])
     5,    /* max_retry */
     {     /* track_info */
       {
-	1,    /* density - FM */
+	DENSITY_FM,  /* density */
 	0,    /* size code - 128 bytes */
 	1,    /* min sector */
 	26    /* max sector */
@@ -723,7 +803,7 @@ int main (int argc, char *argv[])
 
   progname = argv [0];
 
-  printf ("%s version $Revision: 1.9 $\n", progname);
+  printf ("%s version $Revision: 1.10 $\n", progname);
   printf ("Copyright 2002 Eric Smith <eric@brouhaha.com>\n");
 
   while (argc > 1)
@@ -743,9 +823,9 @@ int main (int argc, char *argv[])
 	  else if (strcmp (argv [1], "-ds") == 0)
 	    { manual = 1; disk_info.head_count = 2; }
 	  else if (strcmp (argv [1], "-sd") == 0)
-	    { manual = 1; disk_info.track_info [0].density = 1; }
+	    { manual = 1; disk_info.track_info [0].density = DENSITY_FM; }
 	  else if (strcmp (argv [1], "-dd") == 0)
-	    { manual = 1; disk_info.track_info [0].density = 0; }
+	    { manual = 1; disk_info.track_info [0].density = DENSITY_MFM; }
 	  else if (strcmp (argv [1], "-bc") == 0)
 	    {
 	      if (argc < 3)
@@ -831,7 +911,7 @@ int main (int argc, char *argv[])
   if (manual)
     {
       if (sector_length == 0)
-	sector_length = disk_info.track_info [0].density ? 128 : 256;
+	sector_length = (disk_info.track_info [0].density == DENSITY_FM) ? 128 : 256;
 
       disk_info.track_info [0].size_code = sector_length_to_size_code (sector_length);
 
@@ -843,18 +923,41 @@ int main (int argc, char *argv[])
       print_disk_info (& disk_info);
     }
 
+  density = DENSITY_FM;
+  for (i = 0; i < 4; i++)
+    if (disk_info.track_info [i].density != DENSITY_FM)
+      density = DENSITY_MFM;
+
+#ifdef USE_DMK
+  disk_info.dmk_h = dmk_create_image (image_fn,
+				      disk_info.head_count == 2,
+				      disk_info.cylinder_count,
+				      density == DENSITY_MFM, /* dd */
+				      360, /* RPM */
+				      (density == DENSITY_MFM) ? 500 : 250); /* rate */
+  if (! disk_info.dmk_h)
+    {
+      fprintf (stderr, "error opening output file\n");
+      exit (2);
+    }
+#else
   disk_info.image_f = fopen (image_fn, "wb");
   if (! disk_info.image_f)
     {
       fprintf (stderr, "error opening output file\n");
       exit (2);
     }
+#endif /* USE_DMK */
 
   read_disk (& disk_info);
 
   close (disk_info.floppy_dev);
 
+#ifdef USE_DMK
+  dmk_close_image (disk_info.dmk_h);
+#else
   fclose (disk_info.image_f);
+#endif /* USE_DMK */
 
   exit (0);
 }

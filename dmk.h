@@ -1,9 +1,24 @@
 /*
  * DMK disk image format definitions
  *
+ * $Id: dmk.h,v 1.3 2002/10/19 23:35:50 eric Exp $
+ *
  * Copyright 2002 Eric Smith.
  *
- * $Id: dmk.h,v 1.2 2002/08/08 09:00:34 eric Exp $
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.  Note that permission is
+ * not granted to redistribute this program under the terms of any
+ * other version of the General Public License.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111  USA
  */
 
 

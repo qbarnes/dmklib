@@ -3,7 +3,7 @@
  *
  * Copyright 2002 Eric Smith.
  *
- * $Id: rfloppy.c,v 1.13 2002/08/30 05:57:57 eric Exp $
+ * $Id: rfloppy.c,v 1.14 2002/08/30 17:24:08 eric Exp $
  */
 
 
@@ -83,6 +83,17 @@ void print_track_info (track_info_t *track_info)
 	  (track_info->density == DENSITY_FM) ? "single" : "double",
 	  128 << track_info->size_code,
 	  track_info->min_sector, track_info->max_sector);
+}
+
+
+void print_fdc_status (FILE *f, struct floppy_raw_cmd *cmd)
+{
+  int i;
+
+  fprintf (f, "read ID status:");
+  for (i = 0; i < 3; i++)
+    fprintf (f, " %02x", cmd->reply [i]);
+  fprintf (f, "\n");
 }
 
 
@@ -204,8 +215,7 @@ int read_id (disk_info_t *disk_info, int fm, int seek_head, id_info_t *id_info)
   if (cmd.reply [0] & 0xc0)
     {
       if (verbose >= 2)
-	for (i = 0; i < 3; i++)
-	  fprintf (stderr, "read ID status %d: %02x\n", i, cmd.reply [i]);
+	print_fdc_status (stderr, & cmd);
       return (0);
     }
 
@@ -525,8 +535,7 @@ bool read_sector (disk_info_t *disk_info,
 
   if (cmd.reply [0] & 0xc0)
     {
-      for (i = 0; i < 3; i++)
-	fprintf (stderr, "read ID status %d: %02x\n", i, cmd.reply [i]);
+      print_fdc_status (stderr, & cmd);
       return (0);
     }
 
@@ -829,7 +838,7 @@ int main (int argc, char *argv[])
 
   progname = argv [0];
 
-  printf ("%s version $Revision: 1.13 $\n", progname);
+  printf ("%s version $Revision: 1.14 $\n", progname);
   printf ("Copyright 2002 Eric Smith <eric@brouhaha.com>\n");
 
   while (argc > 1)

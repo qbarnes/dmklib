@@ -3,7 +3,7 @@
  *
  * Copyright 2002 Eric Smith.
  *
- * $Id: rfloppy.c,v 1.8 2002/08/08 02:40:11 eric Exp $
+ * $Id: rfloppy.c,v 1.9 2002/08/08 02:59:18 eric Exp $
  */
 
 
@@ -205,31 +205,18 @@ int read_id (disk_info_t *disk_info, int fm, int seek_head, id_info_t *id_info)
 }
 
 
-bool check_interleave (track_info_t *track_info,
-		       id_info_t *id_info, 
-		       int id_count)
+bool check_interleave_ids (track_info_t *track_info, id_info_t *id_info)
 {
   int i;
-  int first_pos = -1;
   int last_pos;
-  u8 found [256];
   int count = 0;
-  int status = 1;
+  u8 found [256];
 
   memset (found, 0, sizeof (found));
 
-  for (i = 0; i < id_count; i++)
-    if (id_info [i].sector == track_info->min_sector)
-      {
-	first_pos = i;
-	break;
-      }
-  if (first_pos < 0)
-    return (0);
+  last_pos = track_info->max_sector - track_info->min_sector;
 
-  last_pos = first_pos + (track_info->max_sector - track_info->min_sector);
-
-  for (i = first_pos; i <= last_pos; i++)
+  for (i = 0; i <= last_pos; i++)
     {
       if (found [id_info [i].sector])
 	{
@@ -241,16 +228,40 @@ bool check_interleave (track_info_t *track_info,
 	  count ++;
 	}
     }
-  if (count != ((track_info->max_sector - track_info->min_sector) + 1))
-    {
-      fprintf (stderr, "didn't get full range of sector IDs in one revolution\n");
-      status = 0;
-    }
+  return (count == ((track_info->max_sector - track_info->min_sector) + 1));
+}
+				   
+
+void print_interleave (track_info_t *track_info, id_info_t *id_info)
+{
+  int i;
   printf ("sector order:");
-  for (i = first_pos; i <= last_pos; i++)
+  for (i = 0; i <= track_info->max_sector - track_info->min_sector; i++)
     printf (" %d", id_info [i].sector);
   printf ("\n");
-  return (status);
+}
+
+
+bool check_interleave (track_info_t *track_info,
+		       id_info_t *id_info, 
+		       int id_count)
+{
+  int i;
+  int status;
+
+  for (i = 0;
+       i < id_count - ((track_info->max_sector - track_info->min_sector) + 1);
+       i++)
+    if (id_info [i].sector == track_info->min_sector)
+      {
+	status = check_interleave_ids (track_info, & id_info [i]);
+	if (status)
+	  {
+	    print_interleave (track_info, & id_info [i]);
+	    return (1);
+	  }
+      }
+  return (0);
 }
 
 
@@ -712,7 +723,7 @@ int main (int argc, char *argv[])
 
   progname = argv [0];
 
-  printf ("%s version $Revision: 1.8 $\n", progname);
+  printf ("%s version $Revision: 1.9 $\n", progname);
   printf ("Copyright 2002 Eric Smith <eric@brouhaha.com>\n");
 
   while (argc > 1)

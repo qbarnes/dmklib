@@ -826,7 +826,7 @@ int open_drive (disk_info_t *disk_info, char *fn)
 	}
       
     }
-      
+
   if (! recalibrate (disk_info))
     {
       fprintf (stderr, "error recalibrating drive\n");
@@ -904,7 +904,7 @@ int main (int argc, char *argv[])
 
   progname = argv [0];
 
-  printf ("%s version $Revision: 1.19 $\n", progname);
+  printf ("%s version $Rev$\n", progname);
   printf ("Copyright 2002, 2003 Eric Smith <eric@brouhaha.com>\n");
 
   while (argc > 1)
@@ -1070,15 +1070,15 @@ int main (int argc, char *argv[])
     }
   else
     {
-
-  density = DENSITY_FM;
-  for (i = 0; i < (disk_info.track_info_cylinders * MAX_HEADS); i++)
-    {
-      /* don't check density of head 1 if it isn't used */
-      if ((i & 1) && (disk_info.head_count != 2))
-	continue;
-      if (disk_info.track_info [i].density != DENSITY_FM)
-	density = DENSITY_MFM;
+      density = DENSITY_FM;
+      for (i = 0; i < (disk_info.track_info_cylinders * MAX_HEADS); i++)
+	{
+	  /* don't check density of head 1 if it isn't used */
+	  if ((i & 1) && (disk_info.head_count != 2))
+	    continue;
+	  if (disk_info.track_info [i].density != DENSITY_FM)
+	    density = DENSITY_MFM;
+	}
     }
 
   /* following is only for debugging the command parsing */

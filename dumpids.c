@@ -19,6 +19,7 @@ int data_rate;
 /* rate codes are unfortunately NOT defined in fdreg.h */
 #define FD_RATE_250_KBPS 2
 #define FD_RATE_300_KBPS 1
+#define FD_RATE_500_KBPS 0
 
 bool recalibrate (int dev)
 {
@@ -94,8 +95,15 @@ int main (int argc, char *argv[])
   struct floppy_drive_params fdp;
   int seek_cylinder, seek_head;
   int cylinder, head, sector, sector_size;
-  int fm;
+  int fm, rate;
   int reset_now;
+
+  if (argc != 6)
+    {
+      fprintf (stderr, "usage:\n"
+	       "%s device cylinder head fm rate\n", argv [0]);
+      exit (1);
+    }
 
   dev = open (argv [1], O_RDONLY | O_NDELAY, 0);
 
@@ -108,6 +116,7 @@ int main (int argc, char *argv[])
   seek_cylinder = atoi (argv [2]);
   seek_head = atoi (argv [3]);
   fm = atoi (argv [4]);
+  rate = atoi (argv [5]);
 
   if (0 > ioctl (dev, FDRESET, & reset_now))
     {
@@ -125,16 +134,19 @@ int main (int argc, char *argv[])
   printf ("tracks: %d\n", fdp.tracks);
   printf ("rpm: %d\n", fdp.rps * 60);
 
-  switch (fdp.rps)
+  switch (rate)
     {
-    case 5:  /* 300 rpm */
+    case 250:
       data_rate = FD_RATE_250_KBPS;
       break;
-    case 6:  /* 360 rpm */
+    case 300:
       data_rate = FD_RATE_300_KBPS;
       break;
+    case 500:
+      data_rate = FD_RATE_500_KBPS;
+      break;
     default:
-      fprintf (stderr, "unrecognized drive rotation rate %d rpm\n", fdp.rps * 60);
+      fprintf (stderr, "unrecognized data rate, only 250, 300 and 500 supported\n");
       exit (2);
     }
 

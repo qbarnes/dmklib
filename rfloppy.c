@@ -3,7 +3,7 @@
  *
  * Copyright 2002 Eric Smith.
  *
- * $Id: rfloppy.c,v 1.16 2002/08/31 17:45:54 eric Exp $
+ * $Id: rfloppy.c,v 1.17 2002/08/31 18:46:04 eric Exp $
  */
 
 
@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
@@ -21,6 +22,10 @@
 #include "libdmk.h"
 
 
+#define MAX_CYLINDERS 85
+#define MAX_HEADS      2
+
+
 typedef enum {
   RAW_IMAGE,
   DMK_IMAGE,
@@ -28,13 +33,6 @@ typedef enum {
 
 
 int verbose = 0;
-
-
-typedef int bool;
-typedef unsigned char u8;
-typedef unsigned short u16;
-typedef unsigned int u32;
-
 
 
 /* rate codes are unfortunately NOT defined in fdreg.h */
@@ -56,11 +54,11 @@ typedef enum
 typedef struct
 {
   density_t density;
-  u8 log_cylinder;
-  u8 log_head;
-  u8 size_code;
-  u8 min_sector;
-  u8 max_sector;
+  uint8_t log_cylinder;
+  uint8_t log_head;
+  uint8_t size_code;
+  uint8_t min_sector;
+  uint8_t max_sector;
 } track_info_t;
 
 
@@ -77,7 +75,11 @@ typedef struct
   int head_count;
   int double_step;
   int max_retry;
-  track_info_t track_info [4];
+
+  int track_info_cylinders;  /* Autodetect is usually only first 2 cylinders,
+				but user can specify to autodetect all
+				cylinders. */
+  track_info_t track_info [MAX_CYLINDERS * MAX_HEADS];
 } disk_info_t;
 
 
@@ -107,11 +109,11 @@ bool reset_drive (disk_info_t *disk_info)
   if (0 > ioctl (disk_info->floppy_dev, FDRESET, & reset_now))
     {
       fprintf (stderr, "can't reset drive\n");
-      return (0);
+      return (false);
     }
   if (verbose >= 2)
     fprintf (stderr, "floppy reset\n");
-  return (1);
+  return (true);
 }
 
 
@@ -150,11 +152,11 @@ bool seek (disk_info_t *disk_info, int cylinder)
 
 
 bool fd_read_track (int floppy_dev, int cylinder, int head,
-		    int fm, int data_rate, int size_code, u8 *buf)
+		    int fm, int data_rate, int size_code, uint8_t *buf)
 {
   struct floppy_raw_cmd cmd;
   int i = 0;
-  u8 mask = 0x5f;
+  uint8_t mask = 0x5f;
   int sector_size = 128 << size_code;
 
   if (fm)
@@ -191,7 +193,7 @@ typedef struct
 int read_id (disk_info_t *disk_info, int fm, int seek_head, id_info_t *id_info)
 {
   struct floppy_raw_cmd cmd;
-  u8 mask = 0x5f;
+  uint8_t mask = 0x5f;
   int i = 0;
 
   if (fm)
@@ -213,14 +215,14 @@ int read_id (disk_info_t *disk_info, int fm, int seek_head, id_info_t *id_info)
 	  fprintf (stderr, "error issuing FDRAWCMD ioctl\n");
 	}
       reset_drive (disk_info);
-      return (0);
+      return (false);
     }
   
   if (cmd.reply [0] & 0xc0)
     {
       if (verbose >= 2)
 	print_fdc_status (stderr, & cmd);
-      return (0);
+      return (false);
     }
 
   id_info->cylinder  = cmd.reply [3];
@@ -228,7 +230,7 @@ int read_id (disk_info_t *disk_info, int fm, int seek_head, id_info_t *id_info)
   id_info->sector    = cmd.reply [5];
   id_info->size_code = cmd.reply [6];
 
-  return (1);
+  return (true);
 }
 
 
@@ -237,7 +239,7 @@ bool check_interleave_ids (track_info_t *track_info, id_info_t *id_info)
   int i;
   int last_pos;
   int count = 0;
-  u8 found [256];
+  uint8_t found [256];
 
   memset (found, 0, sizeof (found));
 
@@ -285,10 +287,10 @@ bool check_interleave (track_info_t *track_info,
 	if (status)
 	  {
 	    print_interleave (stdout, track_info, & id_info [i]);
-	    return (1);
+	    return (true);
 	  }
       }
-  return (0);
+  return (false);
 }
 
 
@@ -321,7 +323,7 @@ bool check_id_match (track_info_t *track_info,
 		     int id_count)
 {
   int i;
-  bool status = 1;
+  bool status = true;
 
   for (i = 1; i < id_count; i++)
     {
@@ -367,9 +369,9 @@ bool all_sectors_present (track_info_t *track_info,
 	    break;
 	}
       if (j >= id_count)
-	return (0);
+	return (false);
     }
-  return (1);
+  return (true);
 }
 
 
@@ -417,7 +419,7 @@ int try_track (int cylinder, int head,
     {
       fprintf (stderr, "both FM and MFM data on cylinder %d head %d\n",
 	       cylinder, head);
-      return (0);
+      return (false);
     }
 
   if (density_present [DENSITY_MFM])
@@ -428,7 +430,7 @@ int try_track (int cylinder, int head,
     {
       fprintf (stderr, "neither FM nor MFM data on cylinder %d head %d\n",
 	       cylinder, head);
-      return (0);
+      return (false);
     }
 
   for (i = 0; i < MAX_ID_READ; i++)
@@ -436,7 +438,7 @@ int try_track (int cylinder, int head,
       {
 	fprintf (stderr, "error reading ID address mark on cylinder %d head %d\n",
 		 cylinder, head);
-	return (0);
+	return (false);
       }
 
   track_info->size_code = id_info [0].size_code;
@@ -447,14 +449,14 @@ int try_track (int cylinder, int head,
   /* make sure all the sector IDs have the same cylinder, head, and size
      code */
   if (! check_id_match (track_info, id_info, MAX_ID_READ))
-    return (0);
+    return (false);
 
   /* now make sure all sector numbers from min_sector to max_sector are
      represented */
   if (! all_sectors_present (track_info, id_info, MAX_ID_READ))
     {
       fprintf (stderr, "track contains discontiguous sector numbers\n");
-      return (0);
+      return (false);
     }
 
   if (verbose >= 2)
@@ -468,7 +470,7 @@ int try_track (int cylinder, int head,
 
   check_interleave (track_info, id_info, MAX_ID_READ);
 
-  return (1);
+  return (true);
 }
 
 
@@ -477,16 +479,16 @@ int try_disk (disk_info_t *disk_info, int auto_flags)
   int cylinder, head;
   int max_head;
   int i;
-  int result [4];
+  int result [MAX_CYLINDERS * MAX_HEADS];
 
   if (auto_flags & AUTO_TRY_DS)
     max_head = 2;
   else
     max_head = 1;
-  for (cylinder = 0; cylinder <= 1; cylinder++)
+  for (cylinder = 0; cylinder < disk_info->track_info_cylinders; cylinder++)
     for (head = 0; head < max_head; head++)
       {
-	i = (cylinder != 0) * 2 + head;
+	i = cylinder * MAX_HEADS + head;
 	result [i] = try_track (cylinder, head,	disk_info, auto_flags,
 				& disk_info->track_info [i]);
 	if (verbose && ! result [i])
@@ -496,7 +498,7 @@ int try_disk (disk_info_t *disk_info, int auto_flags)
   if (! result [0])
     {
       fprintf (stderr, "can't find data on cylinder 0, head 0\n");
-      return (0);
+      return (false);
     }
 
   if ((auto_flags & AUTO_TRY_DS) && result [1])
@@ -504,18 +506,18 @@ int try_disk (disk_info_t *disk_info, int auto_flags)
   else
     disk_info->head_count = 1;
 
-  return (1);
+  return (true);
 }
 
 
 bool read_sector (disk_info_t *disk_info,
 		  int cylinder, int head, int sector,
 		  track_info_t *track_info,
-		  u8 *buf)
+		  uint8_t *buf)
 {
   struct floppy_raw_cmd cmd;
   int i = 0;
-  u8 mask = 0x5f;
+  uint8_t mask = 0x5f;
   int sector_length = 128 << track_info->size_code;
 
   if (track_info->density == DENSITY_FM)
@@ -543,16 +545,16 @@ bool read_sector (disk_info_t *disk_info,
 	  perror ("ioctl FDRAWCMD in read_sector");
 	}
       reset_drive (disk_info);
-      return (0);
+      return (false);
     }
 
   if (cmd.reply [0] & 0xc0)
     {
       print_fdc_status (stderr, & cmd);
-      return (0);
+      return (false);
     }
 
-  return (1);
+  return (true);
 }
 
 
@@ -566,6 +568,7 @@ void usage (void)
 	   "    -d <drive>            drive (default /dev/fd0)\n"
 	   "    -raw                  output raw image\n"
 	   "    -dmk                  output DMK image\n"
+	   "    -aa                   autodetect all cylinders\n"
 	   "    -ss                   single sided (default)\n"
 	   "    -ds                   double sided\n"
 	   "    -sd                   single density (FM, default)\n"
@@ -592,7 +595,7 @@ bool dmk_image_seek_and_format (disk_info_t *disk_info,
 
   sector_info = calloc (sector_count, sizeof (sector_info_t));
   if (! sector_info)
-    return (0);
+    return (false);
 
   for (i = 0; i < sector_count; i++)
     {
@@ -606,14 +609,14 @@ bool dmk_image_seek_and_format (disk_info_t *disk_info,
     }
 
   if (! dmk_seek (disk_info->dmk_h, cylinder, head))
-    return (0);
+    return (false);
   if (! dmk_format_track (disk_info->dmk_h,
 			  (track_info->density == DENSITY_FM) ? DMK_FM : DMK_MFM,
 			  (track_info->max_sector - track_info->min_sector) + 1,
 			  sector_info))
-    return (0);
+    return (false);
   free (sector_info);
-  return (1);
+  return (true);
 }
 
 
@@ -626,7 +629,7 @@ void read_track (disk_info_t *disk_info,
   bool status;
   int sector;
   sector_info_t sector_info;
-  u8 buf [1024];
+  uint8_t buf [1024];
 
   if (disk_info->image_type == DMK_IMAGE)
     {
@@ -714,10 +717,18 @@ void read_track (disk_info_t *disk_info,
 void read_disk (disk_info_t *disk_info)
 {
   int cylinder, head;
+  int track_info_cylinder;
   track_info_t *track_info;
 
   for (cylinder = 0; cylinder < disk_info->cylinder_count; cylinder++)
     {
+      /* if we don't have track info on all cylinders, assume that
+	 all the cylinders past the last one we have info for are the
+	 same as that one. */
+      track_info_cylinder = cylinder;
+      if (track_info_cylinder > (disk_info->track_info_cylinders - 1))
+	track_info_cylinder = disk_info->track_info_cylinders - 1;
+
       if (! seek (disk_info, cylinder))
 	{
 	  fprintf (stderr, "error seeking\n");
@@ -725,7 +736,7 @@ void read_disk (disk_info_t *disk_info)
 	}
       for (head = 0; head < disk_info->head_count; head++)
 	{
-	  track_info = & disk_info->track_info [(cylinder != 0) * 2 + head];
+	  track_info = & disk_info->track_info [(cylinder != 0) * MAX_HEADS + head];
 	  read_track (disk_info, cylinder, head, track_info);
 	}
     }
@@ -746,20 +757,20 @@ int open_drive (disk_info_t *disk_info, char *fn)
 
   disk_info->floppy_dev = open (fn, O_RDONLY | O_NDELAY, 0);
   if (! disk_info->floppy_dev)
-    return (0);
+    return (false);
 
 #if 0
   if (0 > ioctl (disk_info->floppy_dev, FDMSGON, NULL))
     {
       fprintf (stderr, "can't enable floppy driver debug messages\n");
-      return (0);
+      return (false);
     }
 #endif
 
   if (! reset_drive (disk_info))
     {
       fprintf (stderr, "can't reset drive\n");
-      return (0);
+      return (false);
     }
 
   if (verbose >= 2)
@@ -778,10 +789,10 @@ int open_drive (disk_info_t *disk_info, char *fn)
   if (! recalibrate (disk_info))
     {
       fprintf (stderr, "error recalibrating drive\n");
-      return (0);
+      return (false);
     }
 
-  return (1);
+  return (true);
 }
 
 
@@ -790,11 +801,11 @@ void print_disk_info (FILE *f, disk_info_t *disk_info)
   int cylinder, head;
 
   fprintf (f, "%s sided\n", (disk_info->head_count - 1) ? "double" : "single");
-  for (cylinder = 0; cylinder <= 1; cylinder++)
+  for (cylinder = 0; cylinder < disk_info->track_info_cylinders; cylinder++)
     for (head = 0; head < disk_info->head_count; head++)
       {
 	fprintf (f, "cylinder %d head %d: ", cylinder, head);
-	print_track_info (f, & disk_info->track_info [cylinder * 2 + head]);
+	print_track_info (f, & disk_info->track_info [cylinder * MAX_HEADS + head]);
       }
 }
 
@@ -819,10 +830,11 @@ int main (int argc, char *argv[])
   char *drive_fn = NULL;
   char *image_fn = NULL;
 
-  int manual = 0;
+  bool manual = 0;
   int sector_length = 0;
   density_t density;
   int auto_flags = AUTO_TRY_SS | AUTO_TRY_DS | AUTO_TRY_SD | AUTO_TRY_DD;
+  bool auto_all_cylinders = 0;
 
   int i;
 
@@ -839,6 +851,7 @@ int main (int argc, char *argv[])
     1,    /* head_count */
     0,    /* double_step */
     5,    /* max_retry */
+    2,    /* track_info_cylinders */
     {     /* track_info */
       {
 	DENSITY_FM,  /* density */
@@ -851,7 +864,7 @@ int main (int argc, char *argv[])
 
   progname = argv [0];
 
-  printf ("%s version $Revision: 1.16 $\n", progname);
+  printf ("%s version $Revision: 1.17 $\n", progname);
   printf ("Copyright 2002 Eric Smith <eric@brouhaha.com>\n");
 
   while (argc > 1)
@@ -870,6 +883,8 @@ int main (int argc, char *argv[])
 	      argc--;
 	      argv++;
 	    }
+	  else if (strcmp (argv [1], "-aa") == 0)
+	    auto_all_cylinders = true;
 	  else if (strcmp (argv [1], "-ss") == 0)
 	    auto_flags &= ~ AUTO_TRY_DS;
 	  else if (strcmp (argv [1], "-ds") == 0)
@@ -948,6 +963,9 @@ int main (int argc, char *argv[])
       exit (2);
     }
 
+  if (auto_all_cylinders)
+    disk_info.track_info_cylinders = disk_info.cylinder_count;
+
   if (! manual)
     {
       printf ("Attempting automatic disk characteristics discovery.\n");
@@ -972,7 +990,7 @@ int main (int argc, char *argv[])
 
       disk_info.track_info [0].size_code = sector_length_to_size_code (sector_length);
 
-      for (i = 1; i <= 3; i++)
+      for (i = 1; i < (disk_info.track_info_cylinders * MAX_HEADS); i++)
 	memcpy (& disk_info.track_info [i],
 		& disk_info.track_info [0],
 		sizeof (track_info_t));
@@ -981,7 +999,7 @@ int main (int argc, char *argv[])
     }
 
   density = DENSITY_FM;
-  for (i = 0; i < 4; i++)
+  for (i = 0; i < (disk_info.track_info_cylinders * MAX_HEADS); i++)
     {
       /* don't check density of head 1 if it isn't used */
       if ((i & 1) && (disk_info.head_count != 2))

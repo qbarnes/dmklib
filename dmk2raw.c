@@ -3,7 +3,7 @@
  *
  * Copyright 2002 Eric Smith.
  *
- * $Id: dmk2raw.c,v 1.1 2002/08/08 09:01:22 eric Exp $
+ * $Id: dmk2raw.c,v 1.2 2002/08/18 08:39:25 eric Exp $
  */
 
 
@@ -44,7 +44,10 @@ int main (int argc, char *argv[])
   int i;
 
   if (argc != 3)
-    exit (1);
+    {
+      fprintf (stderr, "usage: %s image.dmk image.raw\n", argv [0]);
+      exit (1);
+    }
 
   h = dmk_open_image (argv [1], 0, & ds, & cylinders, & dd);
   if (! h)
@@ -66,7 +69,7 @@ int main (int argc, char *argv[])
 	for (i = 0; i < 256; i++)
 	  sector_index [i] = -1;
 
-	if (! dmk_seek (h, cylinder, 0))
+	if (! dmk_seek (h, cylinder, head))
 	  {
 	    fprintf (stderr, "error seeking to cylinder %d\n", cylinder);
 	    exit (2);
@@ -74,9 +77,10 @@ int main (int argc, char *argv[])
 
 	if (! dmk_read_id (h, & sector_info [0]))
 	  {
-	    fprintf (stderr, "error reading sector info on cylinder %d\n", cylinder);
+	    fprintf (stderr, "error reading sector info on cylinder %d head %d\n", cylinder, head);
 	    exit (2);
 	  }
+	sector_index [sector_info [0].sector] = 0;
 	min_sector = sector_info [0].sector;
 	max_sector = sector_info [0].sector;
 	for (i = 1; i < DMK_MAX_SECTOR; i++)
@@ -93,7 +97,9 @@ int main (int argc, char *argv[])
 	  }
 	sector_count = i;
 
+#if 0
 	printf ("sector count %d, from %d to %d\n", sector_count, min_sector, max_sector);
+#endif
 	if (sector_count != ((max_sector - min_sector) + 1))
 	  {
 	    fprintf (stderr, "sectors discontigous\n");
@@ -106,12 +112,14 @@ int main (int argc, char *argv[])
 				 & sector_info [sector_index [sector]],
 				 buf))
 	      {
+#if 0
 		printf ("cyl %d head %d sector %d size code %d:\n",
 			sector_info [sector_index [sector]].cylinder,
 			sector_info [sector_index [sector]].head,
 			sector_info [sector_index [sector]].sector,
 			sector_info [sector_index [sector]].size_code);
-		/* hex_dump (buf, 128 << sector_info [sector_index [sector]].size_code); */
+		hex_dump (buf, 128 << sector_info [sector_index [sector]].size_code);
+#endif
 		if (1 != fwrite (buf, 128 << sector_info [sector_index [sector]].size_code, 1, outf))
 		  {
 		    fprintf (stderr, "error writing raw file\n");
@@ -119,17 +127,11 @@ int main (int argc, char *argv[])
 		  }
 	      }
 	    else
-	      printf ("error reading cyl %d head %d sector %d size code %c\n",
+	      printf ("error reading cyl %d head %d sector %d size code %d\n",
 		      sector_info [sector_index [sector]].cylinder,
 		      sector_info [sector_index [sector]].head,
 		      sector_info [sector_index [sector]].sector,
 		      sector_info [sector_index [sector]].size_code);
-	  }
-
-	if (! dmk_format_track (h, DMK_FM, 26, sector_info))
-	  {
-	    fprintf (stderr, "error formatting cylinder %d\n", cylinder);
-	    exit (2);
 	  }
       }
 

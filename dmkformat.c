@@ -3,7 +3,7 @@
  *
  * Copyright 2002 Eric Smith.
  *
- * $Id: dmkformat.c,v 1.1 2002/08/08 09:01:22 eric Exp $
+ * $Id: dmkformat.c,v 1.2 2002/08/18 08:39:25 eric Exp $
  */
 
 
@@ -12,6 +12,9 @@
 #include <stdlib.h>
 
 #include "libdmk.h"
+
+
+#define CYLINDER_COUNT 77
 
 
 int main (int argc, char *argv[])
@@ -26,7 +29,7 @@ int main (int argc, char *argv[])
 
   h = dmk_create_image (argv [1],
 			0,  /* double-sided */
-			77,
+			CYLINDER_COUNT,
 			0, /* not double density */
 			360, /* RPM */
 			250); /* rate */
@@ -36,7 +39,7 @@ int main (int argc, char *argv[])
       exit (2);
     }
 
-  for (cylinder = 0; cylinder < 77; cylinder++)
+  for (cylinder = 0; cylinder < CYLINDER_COUNT; cylinder++)
     {
       if (! dmk_seek (h, cylinder, 0))
 	{
@@ -61,6 +64,36 @@ int main (int argc, char *argv[])
 	  exit (2);
 	}
     }
+
+#ifdef ADDRESS_MARK_DEBUG
+  for (cylinder = 0; cylinder < CYLINDER_COUNT; cylinder++)
+    {
+      if (! dmk_seek (h, cylinder, 0))
+	{
+	  fprintf (stderr, "error seeking to cylinder %d\n", cylinder);
+	  exit (2);
+	}
+
+      for (i = 1; i <= 26; i++)
+	{
+	  sector_info [0].cylinder   = cylinder;
+	  sector_info [0].head       = 0;
+	  sector_info [0].sector     = i;
+	  sector_info [0].size_code  = 0;
+	  sector_info [0].mode       = DMK_FM;
+	  sector_info [0].write_data = 1;
+	  sector_info [0].data_value = 0xe5;  /* not used */
+
+	  if (! dmk_check_address_mark (h, & sector_info [0]))
+	    {
+	      fprintf (stderr, "address mark error on %d/%d\n",
+		       cylinder, i);
+	      exit (2);
+	    }
+	}
+
+    }
+#endif /* ADDRESS_MARK_DEBUG */
 
   dmk_close_image (h);
 

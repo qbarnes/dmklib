@@ -3,7 +3,7 @@
  *
  * Copyright 2002 Eric Smith.
  *
- * $Id: libdmk.h,v 1.4 2002/08/18 05:13:41 eric Exp $
+ * $Id: libdmk.h,v 1.5 2002/08/18 08:39:25 eric Exp $
  */
 
 
@@ -86,3 +86,9 @@ int dmk_read_sector (dmk_handle h,
 int dmk_write_sector (dmk_handle h,
 		      sector_info_t *sector_info,
 		      uint8_t *data);
+
+#undef ADDRESS_MARK_DEBUG
+#ifdef ADDRESS_MARK_DEBUG
+int dmk_check_address_mark (dmk_handle h,
+			    sector_info_t *sector_info);
+#endif /* ADDRESS_MARK_DEBUG */

@@ -1,7 +1,10 @@
+# Not a very good Makefile.
+
 CFLAGS=-g -Wall
 LDFLAGS=-g # -ldsk
 
-all: rfloppy dmkformat dmk2raw r6085 rcoco dumpids libdmk.o
+all: rfloppy dmkformat dmk2raw libdmk.o
+all2: dumpids r6085 rcoco
 
 rfloppy: rfloppy.o libdmk.o
 

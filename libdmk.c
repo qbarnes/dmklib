@@ -3,11 +3,12 @@
  *
  * Copyright 2002 Eric Smith.
  *
- * $Id: libdmk.c,v 1.4 2002/08/18 05:13:41 eric Exp $
+ * $Id: libdmk.c,v 1.5 2002/08/18 08:39:25 eric Exp $
  */
 
 
-#undef DEBUG_CRC
+#define DEBUG_CRC 0
+#undef DEBUG_GAP
 
 
 #include <stdint.h>
@@ -156,6 +157,8 @@ struct dmk_state
 
   uint16_t crc;
   int p;  /* index into buf */
+
+  int read_id_index;
 };
 
 
@@ -231,11 +234,21 @@ static uint8_t read_buf_byte (dmk_handle h)
 static int check_crc (dmk_handle h)
 {
   uint8_t d [2];
+  uint16_t actual_crc;
+  uint16_t expected_crc = h->crc;
 
   read_buf (h, 2, d);
-  /* $$$ byte order? */
-  return ((d [0] != (h->crc >> 8)) &&
-	  (d [1] != (h->crc & 0xff)));
+  actual_crc = (d [0] << 8) | d [1];
+  if (actual_crc == expected_crc)
+    return (1);
+
+#if DEBUG_CRC
+  fprintf (stderr, "CRC == %04x, should be %04x\n",
+	   actual_crc,
+	   expected_crc);
+#endif
+
+  return (0);
 }
 
 
@@ -532,7 +545,11 @@ int dmk_seek (dmk_handle h,
 
   if ((cylinder == h->cur_cylinder) &&
       (head == h->cur_head))
-    return (1);  /* already there */
+    {
+      /* already there */
+      h->read_id_index = 0;
+      return (1);
+    }
 
   new_track = & h->track [(h->ds + 1) * cylinder + head];
 
@@ -565,6 +582,8 @@ int dmk_seek (dmk_handle h,
 		  exit (2);
 		}
 	      idam_ptr = d [1] << 8 | d [0];
+	      if (idam_ptr == 0)
+		continue;
 	      if (idam_ptr < (2 * DMK_MAX_SECTOR))
 		{
 		  fprintf (stderr, "IDAM pointer out of range\n");
@@ -591,6 +610,8 @@ int dmk_seek (dmk_handle h,
   h->cur_cylinder = cylinder;
   h->cur_head = head;
   h->cur_track = new_track;
+
+  h->read_id_index = 0;
 
   return (1);
 }
@@ -636,6 +657,7 @@ static int read_data_field (dmk_handle h,
 	break;
     }
   if (i >= MAX_ID_GAP)
+    return (0);
 
   init_crc (h);
   if (sector_info->mode == DMK_MFM)
@@ -651,7 +673,6 @@ static int read_data_field (dmk_handle h,
 }
 
 
-#define DEBUG_GAP
 static int compute_gap (dmk_handle h,
 			sector_mode_t mode,
 			int sector_count,
@@ -802,39 +823,47 @@ int dmk_format_track (dmk_handle h,
 
       /* ID address mark */
       init_crc (h);
-#ifdef DEBUG_CRC
-      printf ("initial crc: %04x\n", h->crc);
+#if (DEBUG_CRC >= 2)
+      fprintf (stderr, "initial crc: %04x\n", h->crc);
 #endif /* DEBUG_CRC */
 
       write_buf_count_data_clock (h, & fmt->id_address_mark [0]);
       
       h->cur_track->idam_pointer [sector] = h->p;
 #if 0
-      printf ("sector %d IDAM pointer %d\n", sector, h->p);
+      fprintf (stderr, "sector %d IDAM pointer %d\n", sector, h->p);
 #endif
       h->cur_track->mfm_sector [sector] = (mode == DMK_MFM);
 
       write_buf_count_data_clock (h, & fmt->id_address_mark [1]);
-#ifdef DEBUG_CRC
-      printf ("after AM: %04x\n", h->crc);
+#if (DEBUG_CRC >= 2)
+      fprintf (stderr, "after AM: %04x\n", h->crc);
 #endif /* DEBUG_CRC */
 
       write_buf_const (h, 1, sector_info [sector].cylinder);
-#ifdef DEBUG_CRC
-      printf ("after cyl %02x: %04x\n", sector_info [sector].cylinder, h->crc);
+#if (DEBUG_CRC >= 2)
+      fprintf (stderr, "after cyl %02x: %04x\n", sector_info [sector].cylinder, h->crc);
 #endif /* DEBUG_CRC */
       write_buf_const (h, 1, sector_info [sector].head);
-#ifdef DEBUG_CRC
-      printf ("after head %02x: %04x\n", sector_info [sector].head, h->crc);
+#if (DEBUG_CRC >= 2)
+      fprintf (stderr, "after head %02x: %04x\n", sector_info [sector].head, h->crc);
 #endif /* DEBUG_CRC */
       write_buf_const (h, 1, sector_info [sector].sector);
-#ifdef DEBUG_CRC
-      printf ("after sector %02x: %04x\n", sector_info [sector].sector, h->crc);
+#if (DEBUG_CRC >= 2)
+      fprintf (stderr, "after sector %02x: %04x\n", sector_info [sector].sector, h->crc);
 #endif /* DEBUG_CRC */
       write_buf_const (h, 1, sector_info [sector].size_code);
-#ifdef DEBUG_CRC
-      printf ("after size code %02x: %04x\n", sector_info [sector].size_code, h->crc);
+#if (DEBUG_CRC >= 2)
+      fprintf (stderr, "after size code %02x: %04x\n", sector_info [sector].size_code, h->crc);
 #endif /* DEBUG_CRC */
+#if (DEBUG_CRC == 1)
+      fprintf (stderr, "%02d/%d/%02d size %d AM CRC %04x\n",
+	       sector_info [sector].cylinder,
+	       sector_info [sector].head,
+	       sector_info [sector].sector,
+	       sector_info [sector].size_code,
+	       h->crc);
+#endif
       write_crc (h);
 
       if (sector_info [sector].write_data)
@@ -881,6 +910,7 @@ static int find_address_mark (dmk_handle h,
   sector_info_t sector_info;
   track_format_t *fmt;
 
+  h->cur_mode = req_sector->mode;
   fmt = & track_format [req_sector->mode];
 
   /* make sure we have a physical position */
@@ -902,7 +932,7 @@ static int find_address_mark (dmk_handle h,
       /* is there room in the track for a complete address mark? */
       if ((h->p + 7) > h->track_length)
 	{
-	  fprintf (stderr, "address mark to close to end of track\n");
+	  fprintf (stderr, "find_address_mark: address mark too close to end of track\n");
 	  continue;
 	}
 
@@ -916,7 +946,7 @@ static int find_address_mark (dmk_handle h,
       mark = read_buf_byte (h);
       if (mark != fmt->id_address_mark [1].data)
 	{
-	  fprintf (stderr, "address mark byte is %02x, should be %02x\n",
+	  fprintf (stderr, "find_address_mark: address mark byte is %02x, should be %02x\n",
 		   mark, fmt->id_address_mark [1].data);
 	  continue;
 	}
@@ -926,7 +956,7 @@ static int find_address_mark (dmk_handle h,
       sector_info.size_code = read_buf_byte (h);
       if (! check_crc (h))
 	{
-	  fprintf (stderr, "address mark CRC bad\n");
+	  fprintf (stderr, "find_address_mark: address mark CRC bad\n");
 	  continue;
 	}
 
@@ -947,8 +977,67 @@ static int find_address_mark (dmk_handle h,
 int dmk_read_id (dmk_handle h,
 		 sector_info_t *sector_info)
 {
-  /* $$$ */
-  return (0);
+  int j;
+  uint8_t mark;
+  track_format_t *fmt;
+
+  /* make sure we have a physical position */
+  if (h->cur_cylinder < 0)
+    {
+      fprintf (stderr, "dmk_read_id: no physical location\n");
+      return (0);
+    }
+
+  if (h->read_id_index >= DMK_MAX_SECTOR)
+    return (0);
+
+  h->cur_mode = h->cur_track->mfm_sector [h->read_id_index];
+  h->p = h->cur_track->idam_pointer [h->read_id_index++];
+
+  if (h->p == 0)
+    return (0);
+
+  fmt = & track_format [h->cur_mode];
+
+  /* is there room in the track for a complete address mark? */
+  if ((h->p + 7) > h->track_length)
+    {
+      fprintf (stderr, "dmk_read_id: address mark too close to end of track\n");
+      return (0);
+    }
+
+  init_crc (h);
+
+  /* for MFM, CRC includes the three A1 bytes */
+  for (j = 0; j < fmt->id_address_mark [0].count; j++)
+    compute_crc (h, fmt->id_address_mark [0].data);
+
+  /* is it actually an address mark? */
+  mark = read_buf_byte (h);
+  if (mark != fmt->id_address_mark [1].data)
+    {
+      fprintf (stderr, "dmk_read_id: address mark byte is %02x, should be %02x\n",
+	       mark, fmt->id_address_mark [1].data);
+      return (0);
+    }
+
+  sector_info->cylinder  = read_buf_byte (h);
+  sector_info->head      = read_buf_byte (h);
+  sector_info->sector    = read_buf_byte (h);
+  sector_info->size_code = read_buf_byte (h);
+  sector_info->mode      = h->cur_mode;
+
+  if (! check_crc (h))
+    {
+      fprintf (stderr, "dmk_read_id: address mark CRC bad\n");
+      fprintf (stderr, "mode: %s\n", sector_info->mode == DMK_FM ? "FM" : "MFM");
+      fprintf (stderr, "cylinder %d, head %d, sector %d, size code %d\n",
+	       sector_info->cylinder, sector_info->head,
+	       sector_info->sector, sector_info->size_code);
+      return (0);
+    }
+
+  return (1);
 }
 
 
@@ -991,3 +1080,16 @@ int dmk_write_sector (dmk_handle h,
 
   return (1);
 }
+
+
+#ifdef ADDRESS_MARK_DEBUG
+int dmk_check_address_mark (dmk_handle h,
+			    sector_info_t *sector_info)
+{
+  /* find address mark */
+  if (! find_address_mark (h, sector_info))
+    return (0);
+
+  return (1);
+}
+#endif /* ADDRESS_MARK_DEBUG */

@@ -3,7 +3,7 @@
  *
  * Copyright 2002 Eric Smith.
  *
- * $Id: rfloppy.c,v 1.10 2002/08/08 09:00:34 eric Exp $
+ * $Id: rfloppy.c,v 1.11 2002/08/18 05:14:08 eric Exp $
  */
 
 
@@ -25,6 +25,14 @@
 #ifdef USE_DMK
 #include "libdmk.h"
 #endif /* USE_DMK */
+
+
+typedef enum {
+  RAW_IMAGE,
+#ifdef USE_DMK
+  DMK_IMAGE,
+#endif /* USE_DMK */
+} image_type_t;
 
 
 int verbose = 0;
@@ -63,11 +71,13 @@ typedef struct
 typedef struct
 {
   int floppy_dev;
+
+  image_type_t image_type;
 #ifdef USE_DMK
   dmk_handle dmk_h;
-#else
-  FILE *image_f;
 #endif /* USE_DMK */
+  FILE *image_f;  /* for raw mode */
+
   int data_rate;
   int cylinder_count;
   int head_count;
@@ -362,8 +372,16 @@ bool all_sectors_present (track_info_t *track_info,
 #define MAX_ID_READ 100
 
 
+#define AUTO_TRY_DD 0x01
+#define AUTO_TRY_SD 0x02
+
+#define AUTO_TRY_SS 0x04
+#define AUTO_TRY_DS 0x08
+
+
 int try_track (int cylinder, int head,
 	       disk_info_t *disk_info,
+	       int auto_flags,
 	       track_info_t *track_info)
 {
   int i;
@@ -379,6 +397,9 @@ int try_track (int cylinder, int head,
 
   for (density = 0; density <= 1; density++)
     {
+      density_present [density] = 0;
+      if (! (auto_flags & ((density == DENSITY_FM) ? AUTO_TRY_SD : AUTO_TRY_DD)))
+	continue;
       if (verbose >= 2)
 	{
 	  fprintf (stderr, "checking for %s density\n",
@@ -438,17 +459,22 @@ int try_track (int cylinder, int head,
 }
 
 
-int try_disk (disk_info_t *disk_info)
+int try_disk (disk_info_t *disk_info, int auto_flags)
 {
   int cylinder, head;
+  int max_head;
   int i;
   int result [4];
 
+  if (auto_flags & AUTO_TRY_DS)
+    max_head = 2;
+  else
+    max_head = 1;
   for (cylinder = 0; cylinder <= 1; cylinder++)
-    for (head = 0; head <= 1; head++)
+    for (head = 0; head < max_head; head++)
       {
 	i = (cylinder != 0) * 2 + head;
-	result [i] = try_track (cylinder, head,	disk_info,
+	result [i] = try_track (cylinder, head,	disk_info, auto_flags,
 				& disk_info->track_info [i]);
 	if (verbose && ! result [i])
 	  printf ("no data on cylinder %d, head %d\n", cylinder, head);
@@ -460,7 +486,7 @@ int try_disk (disk_info_t *disk_info)
       return (0);
     }
 
-  if (result [1])
+  if ((auto_flags & AUTO_TRY_DS) && result [1])
     disk_info->head_count = 2;
   else
     disk_info->head_count = 1;
@@ -526,6 +552,8 @@ void usage (void)
   fprintf (stderr, "usage:\n"
 	   "%s [options] <image-file>\n"
 	   "    -d <drive>            drive (default /dev/fd0)\n"
+	   "    -raw                  output raw image\n"
+	   "    -dmk                  output DMK image\n"
 	   "    -ss                   single sided (default)\n"
 	   "    -ds                   double sided\n"
 	   "    -sd                   single density (FM, default)\n"
@@ -536,16 +564,16 @@ void usage (void)
 	   "    -mr <retry-count>     maximum retries (default 5)\n",
 	   progname);
   fprintf (stderr, "If no disk characteristics are specified, the program will attempt\n"
-	   "to automatically determine them\n");
+	   "to automatically determine them.\n");
   exit (1);
 }
 
 
 #ifdef USE_DMK
-bool image_seek_and_format (disk_info_t *disk_info,
-			    track_info_t *track_info,
-			    int cylinder,
-			    int head)
+bool dmk_image_seek_and_format (disk_info_t *disk_info,
+				track_info_t *track_info,
+				int cylinder,
+				int head)
 {
   int sector_count = (track_info->max_sector - track_info->min_sector) + 1;
   sector_info_t *sector_info;
@@ -593,11 +621,14 @@ void read_track (disk_info_t *disk_info,
   u8 buf [1024];
 
 #ifdef USE_DMK
-  if (! image_seek_and_format (disk_info, track_info, cylinder, head))
+  if (disk_info->image_type == DMK_IMAGE)
     {
-      fprintf (stderr, "error seeking or formatting cyl %d head %d in DMK image\n",
-	       cylinder, head);
-      exit (2);
+      if (! dmk_image_seek_and_format (disk_info, track_info, cylinder, head))
+	{
+	  fprintf (stderr, "error seeking or formatting cyl %d head %d in DMK image\n",
+		   cylinder, head);
+	  exit (2);
+	}
     }
 #endif /* USE_DMK */
 
@@ -643,27 +674,35 @@ void read_track (disk_info_t *disk_info,
 	  exit (2);
 #endif
 	}
+
+      switch (disk_info->image_type)
+	{
 #ifdef USE_DMK
-      sector_info.cylinder  = cylinder;
-      sector_info.head      = head;
-      sector_info.sector    = sector;
-      sector_info.size_code = track_info->size_code;
-      sector_info.mode      = (track_info->density == DENSITY_FM) ? DMK_FM : DMK_MFM;
-      if (! dmk_write_sector (disk_info->dmk_h,
-			      & sector_info,
-			      buf))
-	{
-	  fprintf (stderr, "error writing image file\n");
-	  exit (2);
-	}
-#else
-      if (1 != fwrite (buf, 128 << track_info->size_code, 1,
-		       disk_info->image_f))
-	{
-	  fprintf (stderr, "error writing image file\n");
-	  exit (2);
-	}
+	case DMK_IMAGE:
+	  sector_info.cylinder  = cylinder;
+	  sector_info.head      = head;
+	  sector_info.sector    = sector;
+	  sector_info.size_code = track_info->size_code;
+	  sector_info.mode      = (track_info->density == DENSITY_FM) ? DMK_FM : DMK_MFM;
+	  if (! dmk_write_sector (disk_info->dmk_h,
+				  & sector_info,
+				  buf))
+	    {
+	      fprintf (stderr, "error writing sector %d/%d/%d to DMK image file\n",
+		       cylinder, head, sector);
+	      /* exit (2); */
+	    }
+	  break;
 #endif /* USE_DMK */
+	case RAW_IMAGE:
+	  if (1 != fwrite (buf, 128 << track_info->size_code, 1,
+			   disk_info->image_f))
+	    {
+	      fprintf (stderr, "error writing image file\n");
+	      exit (2);
+	    }
+	  break;
+	}
     }
 }
 
@@ -777,15 +816,24 @@ int main (int argc, char *argv[])
   char *image_fn = NULL;
 
   int manual = 0;
-  int sector_length;
+  int sector_length = 0;
   int density;
+  int auto_flags = AUTO_TRY_SS | AUTO_TRY_DS | AUTO_TRY_SD | AUTO_TRY_DD;
 
   int i;
 
   disk_info_t disk_info =
   {
     0,    /* floppy_dev */
+
+#ifdef USE_DMK
+    DMK_IMAGE,  /* image_type */
+    NULL,       /* dmk_h */
+#else
+    RAW_IMAGE,  /* image_type */
+#endif /* USE_DMK */
     NULL, /* image_f */
+
     500,  /* data rate */
     77,   /* cylinder_count */
     1,    /* head_count */
@@ -803,14 +851,20 @@ int main (int argc, char *argv[])
 
   progname = argv [0];
 
-  printf ("%s version $Revision: 1.10 $\n", progname);
+  printf ("%s version $Revision: 1.11 $\n", progname);
   printf ("Copyright 2002 Eric Smith <eric@brouhaha.com>\n");
 
   while (argc > 1)
     {
       if (argv [1][0] == '-')
 	{
-	  if (strcmp (argv [1], "-d") == 0)
+	  if (strcmp (argv [1], "-raw") == 0)
+	    disk_info.image_type = RAW_IMAGE;
+#ifdef USE_DMK
+	  else if (strcmp (argv [1], "-dmk") == 0)
+	    disk_info.image_type = DMK_IMAGE;
+#endif /* USE_DMK */
+	  else if (strcmp (argv [1], "-d") == 0)
 	    {
 	      if ((drive_fn) || (argc < 3))
 		usage ();
@@ -819,13 +873,13 @@ int main (int argc, char *argv[])
 	      argv++;
 	    }
 	  else if (strcmp (argv [1], "-ss") == 0)
-	    { manual = 1; disk_info.head_count = 1; }
+	    auto_flags &= ~ AUTO_TRY_DS;
 	  else if (strcmp (argv [1], "-ds") == 0)
-	    { manual = 1; disk_info.head_count = 2; }
+	    auto_flags &= ~ AUTO_TRY_SS;
 	  else if (strcmp (argv [1], "-sd") == 0)
-	    { manual = 1; disk_info.track_info [0].density = DENSITY_FM; }
+	    auto_flags &= ~ AUTO_TRY_DD;
 	  else if (strcmp (argv [1], "-dd") == 0)
-	    { manual = 1; disk_info.track_info [0].density = DENSITY_MFM; }
+	    auto_flags &= ~ AUTO_TRY_SD;
 	  else if (strcmp (argv [1], "-bc") == 0)
 	    {
 	      if (argc < 3)
@@ -900,9 +954,14 @@ int main (int argc, char *argv[])
     {
       printf ("Attempting automatic disk characteristics discovery.\n");
       fflush (stdout);
-      if (! try_disk (& disk_info))
+      if (! try_disk (& disk_info, auto_flags))
 	{
 	  fprintf (stderr, "auto detect failed\n");
+	  exit (2);
+	}
+      if ((! auto_flags & AUTO_TRY_SS) && (disk_info.cylinder_count == 1))
+	{
+	  fprintf (stderr, "auto detected single side only\n");
 	  exit (2);
 	}
       print_disk_info (& disk_info);
@@ -928,36 +987,48 @@ int main (int argc, char *argv[])
     if (disk_info.track_info [i].density != DENSITY_FM)
       density = DENSITY_MFM;
 
+  switch (disk_info.image_type)
+    {
 #ifdef USE_DMK
-  disk_info.dmk_h = dmk_create_image (image_fn,
-				      disk_info.head_count == 2,
-				      disk_info.cylinder_count,
-				      density == DENSITY_MFM, /* dd */
-				      360, /* RPM */
-				      (density == DENSITY_MFM) ? 500 : 250); /* rate */
-  if (! disk_info.dmk_h)
-    {
-      fprintf (stderr, "error opening output file\n");
-      exit (2);
-    }
-#else
-  disk_info.image_f = fopen (image_fn, "wb");
-  if (! disk_info.image_f)
-    {
-      fprintf (stderr, "error opening output file\n");
-      exit (2);
-    }
+    case DMK_IMAGE:
+      disk_info.dmk_h = dmk_create_image (image_fn,
+					  disk_info.head_count == 2,
+					  disk_info.cylinder_count,
+					  density == DENSITY_MFM, /* dd */
+					  360, /* RPM */
+					  (density == DENSITY_MFM) ? 500 : 250); /* rate */
+      if (! disk_info.dmk_h)
+	{
+	  fprintf (stderr, "error opening output file\n");
+	  exit (2);
+	}
+      break;
 #endif /* USE_DMK */
+    case RAW_IMAGE:
+      disk_info.image_f = fopen (image_fn, "wb");
+      if (! disk_info.image_f)
+	{
+	  fprintf (stderr, "error opening output file\n");
+	  exit (2);
+	}
+      break;
+    }
 
   read_disk (& disk_info);
 
   close (disk_info.floppy_dev);
 
+  switch (disk_info.image_type)
+    {
 #ifdef USE_DMK
-  dmk_close_image (disk_info.dmk_h);
-#else
-  fclose (disk_info.image_f);
+    case DMK_IMAGE:
+      dmk_close_image (disk_info.dmk_h);
+      break;
 #endif /* USE_DMK */
+    case RAW_IMAGE:
+      fclose (disk_info.image_f);
+      break;
+    }
 
   exit (0);
 }

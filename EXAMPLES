@@ -1,0 +1,6 @@
+dmklib EXAMPLES
+$Id: EXAMPLES,v 1.1 2003/11/01 01:35:18 eric Exp eric $
+Copyright 2003 Eric Smith <eric@brouhaha.com>
+
+To read 40-track (48 TPI) floppies in an 80-track (96 TPI) drive:
+    ./rfloppy -dc -cc 40 -d /dev/fd1 foo.dmk

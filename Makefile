@@ -1,6 +1,6 @@
 # dmklib
 # Makefile
-# $Id: Makefile,v 1.5 2002/10/19 23:49:31 eric Exp $
+# $Id: Makefile 43 2003-12-22 00:08:05Z eric $
 # Copyright 2002 Eric Smith <eric@brouhaha.com>
 #
 # This program is free software; you can redistribute it and/or modify
@@ -32,7 +32,7 @@ LDFLAGS = -g
 # -----------------------------------------------------------------------------
 
 PACKAGE = dmklib
-VERSION = 0.3
+VERSION = 0.31
 DISTNAME = $(PACKAGE)-$(VERSION)
 
 DATE := $(shell date +%Y.%m.%d)
@@ -44,7 +44,7 @@ HEADERS = libdmk.h dmk.h
 
 SOURCES = libdmk.c rfloppy.c dmkformat.c dmk2raw.c dumpids.c
 
-DEFINES =
+DEFINES = -DDMKLIB_VERSION=$(VERSION)
 
 OTHERSRC = Makefile
 MISC = COPYING README

@@ -3,17 +3,14 @@
  *
  * Copyright 2002 Eric Smith.
  *
- * $Id: rfloppy.c,v 1.2 2002/08/02 08:01:29 eric Exp $
+ * $Id: rfloppy.c,v 1.3 2002/08/04 03:47:47 eric Exp $
  */
-
-
-#undef PRINT_STATUS
-#undef VERBOSE_STATUS
 
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
@@ -22,8 +19,17 @@
 #include <linux/fdreg.h>
 
 
+#include "libdmk.h"
+
+
+int verbose = 0;
+
+
 typedef int bool;
 typedef unsigned char u8;
+typedef unsigned short u16;
+typedef unsigned int u32;
+
 
 
 int double_step = 0;
@@ -114,7 +120,7 @@ void usage (void)
 	   "    -ds                   double sided\n"
 	   "    -sd                   single density (FM, default)\n"
 	   "    -dd                   double density (MFM)\n"
-	   "    -ss <sector-size>     sector size in bytes (default 128/256 for FM/MFM)\n"
+	   "    -bc <sector-size>     sector size in bytes (default 128/256 for FM/MFM)\n"
 	   "    -sc <sector-count>    sector count (default 26)\n"
 	   "    -cc <cylinder-count>  cylinder count (default 77)\n"
 	   "    -mr <retry-count>     maximum retries (default 5)\n",
@@ -148,11 +154,11 @@ int main (int argc, char *argv[])
 
   int reset_now;
   FILE *outf;
-  u8 buf [512];
+  u8 buf [16384];
 
   progname = argv [0];
 
-  printf ("%s version $Revision: 1.2 $\n", progname);
+  printf ("%s version $Revision: 1.3 $\n", progname);
   printf ("Copyright 2002 Eric Smith <eric@brouhaha.com>\n");
 
   while (argc > 1)
@@ -175,7 +181,7 @@ int main (int argc, char *argv[])
 	    fm = 1;
 	  else if (strcmp (argv [1], "-dd") == 0)
 	    fm = 0;
-	  else if (strcmp (argv [1], "-ss") == 0)
+	  else if (strcmp (argv [1], "-bc") == 0)
 	    {
 	      if (argc < 3)
 		usage ();
@@ -206,6 +212,10 @@ int main (int argc, char *argv[])
 	      max_retry = atoi (argv [2]);
 	      argc--;
 	      argv++;
+	    }
+	  else if (strcmp (argv [1], "-v") == 0)
+	    {
+	      verbose++;
 	    }
 	  else
 	    {
@@ -303,31 +313,41 @@ int main (int argc, char *argv[])
 	}
       for (head = 0; head < head_count; head++)
 	{
+	  if (verbose == 1)
+	    {
+	      printf ("%02d %d\r", cylinder, head);
+	      fflush (stdout);
+	    }
 	  for (sector = first_sector; sector <= last_sector; sector++)
 	    {
-#ifdef PRINT_STATUS
-#ifdef VERBOSE_STATUS
-	      printf ("%02d %d %02d: ", cylinder, head, sector);
-#else
-	      printf ("%02d %d %02d\r", cylinder, head, sector);
-#endif
-	      fflush (stdout);
-#endif
+	      if (verbose == 2)
+		{
+		  printf ("%02d %d %02d\r", cylinder, head, sector);
+		  fflush (stdout);
+		}
+	      else if (verbose == 3)
+		{
+		  printf ("%02d %d %02d: ", cylinder, head, sector);
+		  fflush (stdout);
+		}
 	      retry_count = max_retry;
 	      status = 0;
-	      while ((! status) && (retry_count > 0))
+	      while ((! status) && (retry_count-- > 0))
 		status = read_sector (dev, cylinder, head, sector,
 				      size_code, last_sector, fm, data_rate,
 				      buf);
-#ifdef VERBOSE_STATUS
-	      printf ("%s\n", status ? "ok" : "err");
-#endif
+	      if (verbose == 3)
+		{
+		  printf ("%s\n", status ? "ok" : "err");
+		  fflush (stdout);
+		}
 	      if (! status)
 		{
-#ifdef PRINT_STATUS
-		  printf ("\n");
-		  fflush (stdout);
-#endif
+		  if (verbose)
+		    {
+		      printf ("\n");
+		      fflush (stdout);
+		    }
 		  fprintf (stderr, "error reading cyl %d head %d sect %d\n",
 			   cylinder, head, sector);
 #if 0
@@ -348,9 +368,8 @@ int main (int argc, char *argv[])
       fprintf (stderr, "error recalibrating drive\n");
     }
 
-#ifdef PRINT_STATUS
-  printf ("\n");
-#endif
+  if (verbose)
+    printf ("\n");
 
   close (dev);
 

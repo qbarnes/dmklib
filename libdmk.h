@@ -3,7 +3,7 @@
  *
  * Copyright 2002 Eric Smith.
  *
- * $Id: libdmk.h,v 1.3 2002/08/08 09:00:34 eric Exp $
+ * $Id: libdmk.h,v 1.4 2002/08/18 05:13:41 eric Exp $
  */
 
 
@@ -15,7 +15,8 @@ typedef enum
   DMK_FM,    /* single-density */
   DMK_MFM,   /* IBM double-density */
   DMK_RX02,  /* DEC double-density */
-  DMK_M2FM   /* Intel double-density */
+  DMK_M2FM,  /* Intel double-density */
+  MAX_SECTOR_MODE  /* must be last */
 } sector_mode_t;
 
 typedef struct

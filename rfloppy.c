@@ -3,7 +3,7 @@
  *
  * Copyright 2002 Eric Smith.
  *
- * $Id: rfloppy.c,v 1.11 2002/08/18 05:14:08 eric Exp $
+ * $Id: rfloppy.c,v 1.12 2002/08/30 05:54:19 eric Exp $
  */
 
 
@@ -851,7 +851,7 @@ int main (int argc, char *argv[])
 
   progname = argv [0];
 
-  printf ("%s version $Revision: 1.11 $\n", progname);
+  printf ("%s version $Revision: 1.12 $\n", progname);
   printf ("Copyright 2002 Eric Smith <eric@brouhaha.com>\n");
 
   while (argc > 1)
@@ -984,8 +984,13 @@ int main (int argc, char *argv[])
 
   density = DENSITY_FM;
   for (i = 0; i < 4; i++)
-    if (disk_info.track_info [i].density != DENSITY_FM)
-      density = DENSITY_MFM;
+    {
+      /* don't check density of head 1 if it isn't used */
+      if ((i & 1) && (disk_info.head_count != 2))
+	continue;
+      if (disk_info.track_info [i].density != DENSITY_FM)
+	density = DENSITY_MFM;
+    }
 
   switch (disk_info.image_type)
     {

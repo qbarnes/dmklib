@@ -3,7 +3,7 @@
  *
  * Copyright 2002 Eric Smith.
  *
- * $Id: rfloppy.c,v 1.4 2002/08/04 05:41:18 eric Exp $
+ * $Id: rfloppy.c,v 1.5 2002/08/04 05:47:53 eric Exp $
  */
 
 
@@ -337,7 +337,6 @@ void usage (void)
   fprintf (stderr, "usage:\n"
 	   "%s [options] <image-file>\n"
 	   "    -d <drive>            drive (default /dev/fd0)\n"
-	   "    -auto                 auto-detect disk characteristics\n"
 	   "    -ss                   single sided (default)\n"
 	   "    -ds                   double sided\n"
 	   "    -sd                   single density (FM, default)\n"
@@ -347,6 +346,8 @@ void usage (void)
 	   "    -cc <cylinder-count>  cylinder count (default 77)\n"
 	   "    -mr <retry-count>     maximum retries (default 5)\n",
 	   progname);
+  fprintf (stderr, "If no disk characteristics are specified, the program will attempt\n"
+	   "to automatically determine them\n");
   exit (1);
 }
 
@@ -478,12 +479,11 @@ int main (int argc, char *argv[])
 
   int sector_size = 0; /* bytes */
 
-  int automatic = 0;
   int manual = 0;
 
   progname = argv [0];
 
-  printf ("%s version $Revision: 1.4 $\n", progname);
+  printf ("%s version $Revision: 1.5 $\n", progname);
   printf ("Copyright 2002 Eric Smith <eric@brouhaha.com>\n");
 
   while (argc > 1)
@@ -498,8 +498,6 @@ int main (int argc, char *argv[])
 	      argc--;
 	      argv++;
 	    }
-	  else if (strcmp (argv [1], "-auto") == 0)
-	    automatic = 1;
 	  else if (strcmp (argv [1], "-ss") == 0)
 	    { head_count = 1; manual = 1; }
 	  else if (strcmp (argv [1], "-ds") == 0)
@@ -578,16 +576,11 @@ int main (int argc, char *argv[])
       exit (2);
     }
 
-  if (automatic)
+  if (! manual)
     {
       int i, ds;
-      printf ("automatic\n");
+      printf ("Attempting automatic disk characteristics discovery.\n");
       fflush (stdout);
-      if (manual)
-	{
-	  fprintf (stderr, "can't use both -auto and manual settings\n");
-	  usage ();
-	}
       if (! try_disk (& ds, & fm, & sector_size, first_sector, last_sector))
 	{
 	  fprintf (stderr, "auto detect failed\n");

@@ -3,7 +3,7 @@
  *
  * Copyright 2002 Eric Smith.
  *
- * $Id: libdmk.h,v 1.1 2002/08/06 07:29:59 eric Exp $
+ * $Id: libdmk.h,v 1.2 2002/08/08 05:46:34 eric Exp $
  */
 
 
@@ -23,7 +23,7 @@ typedef struct
   uint8_t cylinder;
   uint8_t head;
   uint8_t sector;
-  uint8_t size;
+  uint8_t size_code;
   sector_mode_t mode;
   int write_data;  /* if false, formatting writes
 		      only index and address
@@ -76,7 +76,7 @@ int dmk_read_sector (dmk_handle h,
 		     int log_cylinder,
 		     int log_side,
 		     int log_sector,
-		     int sector_size,
+		     int size_code,
 		     uint8_t *data);
 
 int dmk_write_sector (dmk_handle h,
@@ -84,5 +84,5 @@ int dmk_write_sector (dmk_handle h,
 		      int log_cylinder,
 		      int log_side,
 		      int log_sector,
-		      int sector_size,
+		      int size_code,
 		      uint8_t *data);

@@ -3,6 +3,7 @@
  *
  * Copyright 2002 Eric Smith.
  *
+ * $Id: rfloppy.c,v 1.2 2002/08/02 08:01:29 eric Exp $
  */
 
 
@@ -101,20 +102,47 @@ bool read_sector (int dev,
 }
 
 
+char *progname;
+
+
+void usage (void)
+{
+  fprintf (stderr, "usage:\n"
+	   "%s [options] <image-file>\n"
+	   "    -d <drive>            drive (default /dev/fd0)\n"
+	   "    -ss                   single sided (default)\n"
+	   "    -ds                   double sided\n"
+	   "    -sd                   single density (FM, default)\n"
+	   "    -dd                   double density (MFM)\n"
+	   "    -ss <sector-size>     sector size in bytes (default 128/256 for FM/MFM)\n"
+	   "    -sc <sector-count>    sector count (default 26)\n"
+	   "    -cc <cylinder-count>  cylinder count (default 77)\n"
+	   "    -mr <retry-count>     maximum retries (default 5)\n",
+	   progname);
+  exit (1);
+}
+
+
 int main (int argc, char *argv[])
 {
   int dev;
   struct floppy_drive_params fdp;
 
+  char *drive_fn = NULL;
+  char *image_fn = NULL;
+
   /* parameters as specified by user */
-  int cylinder_count, head_count;
-  int first_sector, last_sector;
-  int sector_size; /* bytes */
-  int rate;
+  int cylinder_count = 77;
+  int head_count = 1;
+  int first_sector = 1;
+  int last_sector = 26;
+  int sector_size = 0; /* bytes */
+  int fm = 1;
+  int max_retry = 5;
 
   int cylinder, head, sector;
   int size_code;
-  int fm;
+  int retry_count;
 
   bool status;
 
@@ -122,14 +150,110 @@ int main (int argc, char *argv[])
   FILE *outf;
   u8 buf [512];
 
-  if (argc != 9)
+  progname = argv [0];
+
+  printf ("%s version $Revision: 1.2 $\n", progname);
+  printf ("Copyright 2002 Eric Smith <eric@brouhaha.com>\n");
+
+  while (argc > 1)
     {
-      fprintf (stderr, "usage:\n"
-	       "%s drive cylinders heads sectors secsize fm|mfm rate image\n", argv [0]);
+      if (argv [1][0] == '-')
+	{
+	  if (strcmp (argv [1], "-d") == 0)
+	    {
+	      if ((drive_fn) || (argc < 3))
+		usage ();
+	      drive_fn = argv [2];
+	      argc--;
+	      argv++;
+	    }
+	  else if (strcmp (argv [1], "-ss") == 0)
+	    head_count = 1;
+	  else if (strcmp (argv [1], "-ds") == 0)
+	    head_count = 2;
+	  else if (strcmp (argv [1], "-sd") == 0)
+	    fm = 1;
+	  else if (strcmp (argv [1], "-dd") == 0)
+	    fm = 0;
+	  else if (strcmp (argv [1], "-ss") == 0)
+	    {
+	      if (argc < 3)
+		usage ();
+	      sector_size = atoi (argv [2]);
+	      argc--;
+	      argv++;
+	    }
+	  else if (strcmp (argv [1], "-sc") == 0)
+	    {
+	      if (argc < 3)
+		usage ();
+	      last_sector = atoi (argv [2]);
+	      argc--;
+	      argv++;
+	    }
+	  else if (strcmp (argv [1], "-cc") == 0)
+	    {
+	      if (argc < 3)
+		usage ();
+	      cylinder_count = atoi (argv [2]);
+	      argc--;
+	      argv++;
+	    }
+	  else if (strcmp (argv [1], "-mr") == 0)
+	    {
+	      if (argc < 3)
+		usage ();
+	      max_retry = atoi (argv [2]);
+	      argc--;
+	      argv++;
+	    }
+	  else
+	    {
+	      fprintf (stderr, "unrecognized option '%s'\n", argv [1]);
+	      usage ();
+	    }
+	}
+      else if (! image_fn)
+	image_fn = argv [1];
+      else
+	{
+	  fprintf (stderr, "unrecognized argument '%s'\n", argv [1]);
+	  usage ();
+	}
+      argc--;
+      argv++;
+    }
+
+  if (! drive_fn)
+    drive_fn = "/dev/fd0";
+
+  if (! image_fn)
+    {
+      fprintf (stderr, "must specify image file name\n");
+      usage ();
+    }
+
+  switch (sector_size)
+    {
+    case 0:
+      if (fm)
+	{ sector_size = 128; size_code = 0; }
+      else
+	{ sector_size = 256; size_code = 1; }
+      break;
+    case  128:   size_code = 0;   break;
+    case  256:   size_code = 1;   break;
+    case  512:   size_code = 2;   break;
+    case 1024:   size_code = 3;   break;
+    case 2048:   size_code = 4;   break;
+    case 4096:   size_code = 5;   break;
+    case 8192:   size_code = 6;   break;
+    default:
+      fprintf (stderr, "invalid sector size\n");
       exit (1);
     }
 
-  dev = open (argv [1], O_RDONLY | O_NDELAY, 0);
+  dev = open (drive_fn, O_RDONLY | O_NDELAY, 0);
 
   if (0 > dev)
     {
@@ -137,79 +261,14 @@ int main (int argc, char *argv[])
       exit (2);
     }
 
-  outf = fopen (argv [argc - 1], "wb");
+  outf = fopen (image_fn, "wb");
   if (! outf)
     {
       fprintf (stderr, "error opening output file\n");
       exit (2);
     }
 
-  cylinder_count = atoi (argv [2]);
-  head_count = atoi (argv [3]);
-  first_sector = 1;
-  last_sector = atoi (argv [4]);
-  sector_size = atoi (argv [5]);
-  rate = atoi (argv [7]);
-
-  if (strcasecmp (argv [6], "fm") == 0)
-    fm = 1;
-  else if (strcasecmp (argv [6], "mfm") == 0)
-    fm = 0;
-  else
-    {
-      fprintf (stderr, "unrecognized density, choices are fm and mfm\n");
-      exit (1);
-    }
-
-  switch (sector_size)
-    {
-    case 128:
-      size_code = 0;
-      break;
-    case 256:
-      size_code = 1;
-      break;
-    case 512:
-      size_code = 2;
-      break;
-    case 1024:
-      size_code = 3;
-      break;
-    case 2048:
-      size_code = 4;
-      break;
-    case 4096:
-      size_code = 5;
-      break;
-    case 8192:
-      size_code = 6;
-      break;
-    default:
-      fprintf (stderr, "invalid sector size\n");
-      exit (1);
-    }
-
-  switch (rate)
-    {
-    case 250:
-      data_rate = FD_RATE_250_KBPS;
-      break;
-    case 300:
-      data_rate = FD_RATE_300_KBPS;
-      break;
-    case 500:
-      data_rate = FD_RATE_500_KBPS;
-      break;
-    default:
-      fprintf (stderr, "unrecognized data transfer rate, must be 250, 300, or 500\n");
-      exit (1);
-    }
-
-  if ((head_count != 1) && (head_count != 2))
-    {
-      fprintf (stderr, "head count must be 1 or 2\n");
-      exit (1);
-    }
+  data_rate = FD_RATE_500_KBPS;
 
   if (0 > ioctl (dev, FDRESET, & reset_now))
     {
@@ -254,9 +313,12 @@ int main (int argc, char *argv[])
 #endif
 	      fflush (stdout);
 #endif
-	      status = read_sector (dev, cylinder, head, sector,
-				    size_code, last_sector, fm, data_rate,
-				    buf);
+	      retry_count = max_retry;
+	      status = 0;
+	      while ((! status) && (retry_count > 0))
+		status = read_sector (dev, cylinder, head, sector,
+				      size_code, last_sector, fm, data_rate,
+				      buf);
 #ifdef VERBOSE_STATUS
 	      printf ("%s\n", status ? "ok" : "err");
 #endif

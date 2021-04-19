@@ -170,6 +170,7 @@ struct dmk_state
   sector_mode_t cur_mode;  /* current transfer mode */
   track_state_t *cur_track;
 
+  uint16_t actual_crc;
   uint16_t crc;
   int p;  /* index into buf */
 
@@ -249,17 +250,17 @@ static uint8_t read_buf_byte (dmk_handle h)
 static int check_crc (dmk_handle h)
 {
   uint8_t d [2];
-  uint16_t actual_crc;
   uint16_t expected_crc = h->crc;
 
   read_buf (h, 2, d);
-  actual_crc = (d [0] << 8) | d [1];
-  if (actual_crc == expected_crc)
+  h->actual_crc = (d [0] << 8) | d [1];
+  h->crc = expected_crc;
+  if (h->actual_crc == expected_crc)
     return (1);
 
 #if DEBUG_CRC
   fprintf (stderr, "CRC == %04x, should be %04x\n",
-	   actual_crc,
+	   h->actual_crc,
 	   expected_crc);
 #endif
 
@@ -1056,15 +1057,28 @@ int dmk_read_id (dmk_handle h,
 }
 
 
-int dmk_read_sector (dmk_handle h,
+int dmk_read_sector_with_crcs (dmk_handle h,
 		     sector_info_t *sector_info,
-		     uint8_t *data)
+		     uint8_t *data,
+		     uint16_t *actual_crc,
+		     uint16_t *computed_crc)
 {
   /* find address mark */
   if (! find_address_mark (h, sector_info))
     return (0);
 
-  return (read_data_field (h, sector_info, data));
+  int ret = read_data_field (h, sector_info, data);
+  if (actual_crc) *actual_crc = h->actual_crc;
+  if (computed_crc) *computed_crc = h->crc;
+  return (ret);
+}
+
+
+int dmk_read_sector (dmk_handle h,
+		     sector_info_t *sector_info,
+		     uint8_t *data)
+{
+  return(dmk_read_sector_with_crcs(h, sector_info, data, NULL, NULL));
 }
 
 

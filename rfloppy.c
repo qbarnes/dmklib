@@ -1049,7 +1049,7 @@ int main (int argc, char *argv[])
 	  fprintf (stderr, "auto detect failed\n");
 	  exit (2);
 	}
-      if ((! auto_flags & AUTO_TRY_SS) && (disk_info.cylinder_count == 1))
+      if (!(auto_flags & AUTO_TRY_SS) && (disk_info.cylinder_count == 1))
 	{
 	  fprintf (stderr, "auto detected single side only\n");
 	  exit (2);

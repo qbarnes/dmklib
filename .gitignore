@@ -1,0 +1,6 @@
+*.o
+*.d
+dmk2raw
+dmkformat
+dumpids
+rfloppy

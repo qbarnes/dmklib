@@ -156,6 +156,7 @@ struct dmk_state
   int dd;    /* disk is double density */
   int rpm;   /* 300 or 360 RPM */
   int rate;  /* 125, 250, 300, or 500 Kbps */
+  int rx02;  /* boolean */
 
   /* computed parameters */
   int track_length;  /* length of a track buffer, not including IDAM
@@ -219,12 +220,38 @@ static inline void advance_p (dmk_handle h, int count)
     inc_p (h);
 }
 
+static int sector_size (int encoding, int sizecode)
+{
+  switch(encoding) {
+  case DMK_MFM:
+    return 128 << (sizecode & 0x3);
+  case DMK_RX02:
+    return 256 << (sizecode & 0x3);
+  case DMK_FM:
+  default:
+    if (sizecode & ~0x3) {
+      return 16 * (sizecode ? sizecode : 256);
+    } else {
+      return 128 << sizecode;
+    }
+  }
+}
+
+static int si_sector_size (sector_info_t *si)
+{
+  return sector_size (si->mode, si->size_code);
+}
+
+int dmk_sector_size (sector_info_t *si)
+{
+  return si_sector_size (si);
+}
+
 static void read_buf (dmk_handle h,
 		      int len,
 		      uint8_t *data)
 {
   uint8_t b;
-
   assert (h->p >= 0);
   while (len--)
     {
@@ -358,8 +385,9 @@ dmk_handle dmk_open_image (char *fn,
 
   h->cylinders = dmk_header [1];
   h->track_length = ((dmk_header [3] << 8) | dmk_header [2]) - 2 * DMK_MAX_SECTOR;
-  h->dd = ! (dmk_header [4] & DMK_FLAG_SD_MASK);
-  h->ds = ! (dmk_header [4] & DMK_FLAG_SS_MASK);
+  h->dd   = ! (dmk_header [4] & DMK_FLAG_SD_MASK);
+  h->ds   = ! (dmk_header [4] & DMK_FLAG_SS_MASK);
+  h->rx02 = !!(dmk_header [4] & DMK_FLAG_RX02_MASK);
 
   *ds = h->ds;
   *cylinders = h->cylinders;
@@ -480,6 +508,8 @@ int dmk_close_image (dmk_handle h)
       dmk_header [4] = 0x00;  /* flags */
       if (! h->ds)
 	dmk_header [4] |= DMK_FLAG_SS_MASK;
+      if (! h->rx02)
+	dmk_header [4] |= DMK_FLAG_RX02_MASK;
       if (! h->dd)
 	dmk_header [4] |= DMK_FLAG_SD_MASK;
     
@@ -611,11 +641,11 @@ int dmk_seek (dmk_handle h,
 	      idam_ptr -= 2 * DMK_MAX_SECTOR;
 	      if (idam_ptr & DMK_IDAM_POINTER_MFM_MASK)
 		{
-		  new_track->mfm_sector [i] = 1;
+		  new_track->mfm_sector [i] = h->rx02 ? DMK_RX02 : DMK_MFM;
 		  idam_ptr &= ~ DMK_IDAM_POINTER_FLAGS_MASK;
 		}
 	      else
-		new_track->mfm_sector [i] = 0;
+		new_track->mfm_sector [i] = DMK_FM;
 	      new_track->idam_pointer [i] = idam_ptr;
 	    }
 	  if (1 != fread (new_track->buf, h->track_length, 1, h->f))
@@ -650,9 +680,9 @@ static int write_data_field (dmk_handle h,
   write_buf_count_data_clock (h, & fmt->data_mark [0]);
   write_buf_count_data_clock (h, & fmt->data_mark [1]);
   if (single_value)
-    write_buf_const (h, 128 << sector_info->size_code, *data);
+    write_buf_const (h, si_sector_size (sector_info), *data);
   else
-    write_buf       (h, 128 << sector_info->size_code, data);
+    write_buf       (h, si_sector_size (sector_info), data);
   write_crc (h);
   write_buf_count_data (h, & fmt->post_data_gap [0]);
 
@@ -687,7 +717,7 @@ static int read_data_field (dmk_handle h,
       compute_crc (h, 0xa1);
     }
   compute_crc (h, b);  /* the data mark is included in the CRC */
-  read_buf (h, 128 << sector_info->size_code, data);
+  read_buf (h, si_sector_size (sector_info), data);
   return (check_crc (h));
 }
 
@@ -725,7 +755,7 @@ static int compute_gap (dmk_handle h,
 
   data_length = 0;
   for (sector = 0; sector < sector_count; sector++)
-    data_length += (128 << sector_info [sector].size_code);
+    data_length += (si_sector_size (&sector_info [sector]));
 
   room = h->track_length - (track_overhead + 
 			    (sector_count * sector_overhead) +
@@ -903,7 +933,7 @@ int dmk_format_track (dmk_handle h,
 			  fmt->id_gap [1].count +
 			  fmt->id_address_mark [0].count +
 			  fmt->id_address_mark [1].count +
-			  (128 << sector_info [sector].size_code) +
+			  (si_sector_size (&sector_info [sector])) +
 			  2 + /* CRC */
 			  fmt->post_data_gap [0].count +
 			  fmt->post_data_gap [1].count),

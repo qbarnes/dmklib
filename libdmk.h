@@ -108,6 +108,8 @@ int dmk_write_sector (dmk_handle h,
 		      sector_info_t *sector_info,
 		      uint8_t *data);
 
+int dmk_sector_size (sector_info_t *si);
+
 #undef ADDRESS_MARK_DEBUG
 #ifdef ADDRESS_MARK_DEBUG
 int dmk_check_address_mark (dmk_handle h,

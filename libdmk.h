@@ -21,6 +21,12 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111  USA
  */
 
+#ifndef DMKLIB_LIBDMK_H
+#define DMKLIB_LIBDMK_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #define DMK_MAX_SECTOR 64
 
@@ -115,3 +121,9 @@ int dmk_sector_size (sector_info_t *si);
 int dmk_check_address_mark (dmk_handle h,
 			    sector_info_t *sector_info);
 #endif /* ADDRESS_MARK_DEBUG */
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif

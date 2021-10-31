@@ -692,9 +692,15 @@ static int write_data_field (dmk_handle h,
 
 #define MAX_ID_GAP 50  /* shouldn't ever be more than 17 for FM, 34 for MFM */
 
-static int read_data_field (dmk_handle h,
+/* -1 - bad read, CRCs set
+ *  0 - bad read, CRCs not set
+ *  1 - good read, CRCs set
+ */
+static int read_data_field_with_crcs (dmk_handle h,
 			    sector_info_t *sector_info,
-			    uint8_t *data)
+			    uint8_t *data,
+			    uint16_t *actual_crc,
+			    uint16_t *computed_crc)
 {
   int i;
   uint8_t b;
@@ -718,7 +724,10 @@ static int read_data_field (dmk_handle h,
     }
   compute_crc (h, b);  /* the data mark is included in the CRC */
   read_buf (h, si_sector_size (sector_info), data);
-  return (check_crc (h));
+  int ret = check_crc (h) ? 1 : -1;
+  if (actual_crc)   *actual_crc   = h->actual_crc;
+  if (computed_crc) *computed_crc = h->crc;
+  return (ret);
 }
 
 
@@ -1087,6 +1096,10 @@ int dmk_read_id (dmk_handle h,
 }
 
 
+/* -1 - bad read, CRCs returned
+ *  0 - bad read, CRCs not set
+ *  1 - good read, CRCs returned
+ */
 int dmk_read_sector_with_crcs (dmk_handle h,
 		     sector_info_t *sector_info,
 		     uint8_t *data,
@@ -1097,9 +1110,8 @@ int dmk_read_sector_with_crcs (dmk_handle h,
   if (! find_address_mark (h, sector_info))
     return (0);
 
-  int ret = read_data_field (h, sector_info, data);
-  if (actual_crc) *actual_crc = h->actual_crc;
-  if (computed_crc) *computed_crc = h->crc;
+  int ret = read_data_field_with_crcs (h, sector_info, data,
+					actual_crc, computed_crc);
   return (ret);
 }
 
@@ -1108,7 +1120,7 @@ int dmk_read_sector (dmk_handle h,
 		     sector_info_t *sector_info,
 		     uint8_t *data)
 {
-  return(dmk_read_sector_with_crcs(h, sector_info, data, NULL, NULL));
+  return(!!dmk_read_sector_with_crcs(h, sector_info, data, NULL, NULL));
 }
 
 

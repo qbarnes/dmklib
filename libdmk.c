@@ -105,10 +105,10 @@ track_format_t track_format [MAX_SECTOR_MODE] =
   },
   { /* RX02 */
     /* pre_index_gap */         {{ 40, 0xff },       {  6, 0x00 }},
-    /* index_mark */            {{  1, 0xfc, 0xd7 }, {  0, 0x00, 0x00 }},
+    /* index_mark */            {{  0, 0x00, 0x00 }, {  1, 0xfc, 0xd7 }},
     /* pre_sector_gap */        {{ 26, 0xff },       {  6, 0x00 }},
     /* min_pre_sector_gap */    {{ 10, 0xff },       {  4, 0x00 }},
-    /* id_address_mark */       {{  1, 0xfe },       {  0, 0x00 }},
+    /* id_address_mark */       {{  0, 0x00 },       {  1, 0xfe }},
     /* address_field_length */  7,
     /* id_gap */                {{ 11, 0xff },       {  6, 0x00 }},
     /* data_mark */             {{  1, 0xfb, 0xc7 }, {  0, 0x00, 0x00 }},
@@ -257,7 +257,7 @@ static void read_buf (dmk_handle h,
     {
       b = h->cur_track->buf [h->p];
       inc_p (h);
-      if (h->dd && (h->cur_mode == DMK_FM))
+      if (h->dd && ((h->cur_mode == DMK_FM) || h->cur_mode == DMK_RX02))
 	inc_p (h);
       compute_crc (h, b);
       *(data++) = b;
@@ -639,9 +639,13 @@ int dmk_seek (dmk_handle h,
 		  exit (2);
 		}
 	      idam_ptr -= 2 * DMK_MAX_SECTOR;
-	      if (idam_ptr & DMK_IDAM_POINTER_MFM_MASK)
+	      if (h->rx02)
 		{
-		  new_track->mfm_sector [i] = h->rx02 ? DMK_RX02 : DMK_MFM;
+		  new_track->mfm_sector [i] = DMK_RX02;
+		}
+	      else if (idam_ptr & DMK_IDAM_POINTER_MFM_MASK)
+		{
+		  new_track->mfm_sector [i] = DMK_MFM;
 		  idam_ptr &= ~ DMK_IDAM_POINTER_FLAGS_MASK;
 		}
 	      else
@@ -708,11 +712,15 @@ static int read_data_field_with_crcs (dmk_handle h,
   for (i = 0; i < MAX_ID_GAP; i++)
     {
       b = read_buf_byte (h);
-      if ((b >= 0xf8) && (b <= 0xfb))
+      if ((b >= 0xf8) && (b <= 0xfd))
 	break;
     }
   if (i >= MAX_ID_GAP)
     return (0);
+
+  /* temporarily flip current mode to MFM when processing RX02 data field */
+  if (sector_info->mode == DMK_RX02)
+    h->cur_mode = DMK_MFM;
 
   init_crc (h);
   if (sector_info->mode == DMK_MFM)
@@ -727,6 +735,10 @@ static int read_data_field_with_crcs (dmk_handle h,
   int ret = check_crc (h) ? 1 : -1;
   if (actual_crc)   *actual_crc   = h->actual_crc;
   if (computed_crc) *computed_crc = h->crc;
+
+  if (sector_info->mode == DMK_RX02)
+    h->cur_mode = DMK_RX02;
+
   return (ret);
 }
 

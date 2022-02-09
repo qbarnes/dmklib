@@ -54,6 +54,17 @@ typedef struct
 		     formatting, normally 0xe5 */
 } sector_info_t;
 
+/* parameters specified by user */
+typedef struct dmk_parms
+{
+  int ds;           /* true if double sided */
+  int cylinders;
+  int dd;           /* true if double density */
+  int rx02;         /* true if RX02 */
+  int rpm;          /* 300 or 360 RPM */
+  int rate;         /* 125, 250, 300, or 500 Kbps */
+  int tracklen;     /* if rpm or rate are 0, use tracklen value instead */
+} dmk_parms_t;
 
 typedef struct dmk_state *dmk_handle;
 
@@ -64,6 +75,9 @@ dmk_handle dmk_create_image (char *fn,
 			     int dd,    /* boolean */
 			     int rpm,   /* 300 or 360 RPM */
 			     int rate); /* 125, 250, 300, or 500 Kbps */
+
+dmk_handle dmk_create_image_wp (const char *fn,
+				const struct dmk_parms *dp);
 
 /*
  * Set ds true for double-sided disks.
@@ -82,6 +96,10 @@ dmk_handle dmk_open_image (char *fn,
 			   int *ds,
 			   int *cylinders,
 			   int *dd);
+
+dmk_handle dmk_open_image_wp (const char *fn,
+			      int write_enable,
+			      struct dmk_parms *dp);
 
 int dmk_close_image (dmk_handle h);
 

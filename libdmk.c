@@ -351,11 +351,9 @@ static void write_crc (dmk_handle h)
 }
 
 
-dmk_handle dmk_open_image (char *fn,
-			   int write_enable,
-			   int *ds,
-			   int *cylinders,
-			   int *dd)
+dmk_handle dmk_open_image_wp (const char *fn,
+			      int write_enable,
+			      struct dmk_parms *dp)
 {
   dmk_handle h;
   uint8_t dmk_header [DMK_HEADER_LENGTH];
@@ -389,17 +387,94 @@ dmk_handle dmk_open_image (char *fn,
   h->ds   = ! (dmk_header [4] & DMK_FLAG_SS_MASK);
   h->rx02 = !!(dmk_header [4] & DMK_FLAG_RX02_MASK);
 
-  *ds = h->ds;
-  *cylinders = h->cylinders;
-  *dd = h->dd;
+  dp->ds = h->ds;
+  dp->cylinders = h->cylinders;
+  dp->dd = h->dd;
+  dp->rpm = 0;
+  dp->rate = 0;
+  dp->tracklen = h->track_length + 2 * DMK_MAX_SECTOR;
 
-#if 0
-  /* could guess, but why bother */
-  h->rpm = rpm;
-  h->rate = rate;
-#endif
+  /* rpm and rate in handle are unused */
+  h->rpm = 0;
+  h->rate = 0;
 
   h->track = calloc (h->cylinders * (h->ds + 1), sizeof (track_state_t));
+  if (! h->track)
+    goto fail;
+
+  /* 
+   * Make sure the first seek will do the right thing, by setting
+   * the current position to a non-existent track
+   */
+  h->cur_cylinder = -1;
+  h->cur_head = -1;
+
+  return (h);
+
+ fail:
+  if (h)
+    free (h);
+  return (NULL);
+}
+
+
+dmk_handle dmk_open_image (char *fn,
+			   int write_enable,
+			   int *ds,
+			   int *cylinders,
+			   int *dd)
+{
+  struct dmk_parms dp;
+  dmk_handle h = dmk_open_image_wp (fn, write_enable, &dp);
+  *ds = dp.ds;
+  *cylinders = dp.cylinders;
+  *dd = dp.dd;
+  return h;
+}
+
+
+dmk_handle dmk_create_image_wp (const char *fn,
+				const struct dmk_parms *dp)
+{
+  dmk_handle h;
+
+  h = calloc (1, sizeof (struct dmk_state));
+  if (! h)
+    goto fail;
+
+  h->f = fopen (fn, "wb");
+  if (! h->f)
+    goto fail;
+
+  h->new_image = 1;
+  h->writable = 1;
+
+  h->ds = dp->ds;
+  h->cylinders = dp->cylinders;
+  h->dd = dp->dd;
+  h->rx02 = dp->rx02;
+  h->rpm = dp->rpm;
+  h->rate = dp->rate;
+
+  if ((dp->rpm == 360) && (dp->rate == 500) && dp->dd)
+    h->track_length = 0x2900;  /* 8-inch DD, defined in DMK spec
+				  (doesn't include IDAM pointers */
+  else if ((dp->rpm == 360) && (dp->rate == 250) && ! dp->dd)
+    h->track_length = 0x14a0;  /* 8-inch SD, defined in DMK spec
+				  (doesn't include IDAM pointers */
+  else if ((dp->rpm != 0) && (dp->rate != 0))
+    {
+      h->track_length = (dp->rate * 7500L) / dp->rpm;
+      if (h->track_length > 0x2900)
+	fprintf (stderr, "warning: track length %d exceeds maximum DMK spec\n",
+		 h->track_length);
+    }
+  else 
+    {
+      h->track_length = dp->tracklen - 2 * DMK_MAX_SECTOR;
+    }
+
+  h->track = calloc (dp->cylinders * (dp->ds + 1), sizeof (track_state_t));
   if (! h->track)
     goto fail;
 
@@ -426,56 +501,8 @@ dmk_handle dmk_create_image (char *fn,
 			     int rpm,   /* 300 or 360 RPM */
 			     int rate)  /* 125, 250, 300, or 500 Kbps */
 {
-  dmk_handle h;
-
-  h = calloc (1, sizeof (struct dmk_state));
-  if (! h)
-    goto fail;
-
-  h->f = fopen (fn, "wb");
-  if (! h->f)
-    goto fail;
-
-  h->new_image = 1;
-  h->writable = 1;
-
-  h->ds = ds;
-  h->cylinders = cylinders;
-  h->dd = dd;
-  h->rpm = rpm;
-  h->rate = rate;
-
-  if ((rpm == 360) && (rate == 500) && dd)
-    h->track_length = 0x2900;  /* 8-inch DD, defined in DMK spec
-				  (doesn't include IDAM pointers */
-  else if ((rpm == 360) && (rate == 250) && ! dd)
-    h->track_length = 0x14a0;  /* 8-inch SD, defined in DMK spec
-				  (doesn't include IDAM pointers */
-  else
-    {
-      h->track_length = (rate * 7500L) / rpm;
-      if (h->track_length > 0x2900)
-	fprintf (stderr, "warning: track length %d exceeds maximum DMK spec\n",
-		 h->track_length);
-    }
-
-  h->track = calloc (cylinders * (ds + 1), sizeof (track_state_t));
-  if (! h->track)
-    goto fail;
-
-  /* 
-   * Make sure the first seek will do the right thing, by setting
-   * the current position to a non-existent track
-   */
-  h->cur_cylinder = -1;
-  h->cur_head = -1;
-
-  return (h);
-
- fail:
-  if (h)
-    free (h);
-  return (NULL);
+  return dmk_create_image_wp (fn, &(struct dmk_parms)
+				{ds, cylinders, dd, rpm, rate, 0});
 }
 
 

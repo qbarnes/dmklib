@@ -506,9 +506,12 @@ int dmk_close_image (dmk_handle h)
 	    for (sector = 0; sector < DMK_MAX_SECTOR; sector++)
 	      {
 		int idam_ptr = track->idam_pointer [sector];
-		idam_ptr += 2 * DMK_MAX_SECTOR;
-		if (track->mfm_sector [sector])
-		  idam_ptr |= DMK_IDAM_POINTER_MFM_MASK;
+		if (idam_ptr)
+		  {
+		    idam_ptr += 2 * DMK_MAX_SECTOR;
+		    if (track->mfm_sector [sector])
+		      idam_ptr |= DMK_IDAM_POINTER_MFM_MASK;
+		  }
 		b = idam_ptr & 0xff;
 		if (1 != fwrite (& b, 1, 1, h->f))
 		  {

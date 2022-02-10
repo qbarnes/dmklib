@@ -924,7 +924,6 @@ static int find_address_mark (dmk_handle h,
 {
   int i, j;
   uint8_t mark;
-  uint8_t *buf;
   sector_info_t sector_info;
   track_format_t *fmt;
 
@@ -937,8 +936,6 @@ static int find_address_mark (dmk_handle h,
       fprintf (stderr, "find_address_mark: no physical location\n");
       return (0);
     }
-
-  buf = h->cur_track->buf;
 
   for (i = 0; i < DMK_MAX_SECTOR; i++)
     {

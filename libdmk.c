@@ -508,7 +508,7 @@ int dmk_close_image (dmk_handle h)
       dmk_header [4] = 0x00;  /* flags */
       if (! h->ds)
 	dmk_header [4] |= DMK_FLAG_SS_MASK;
-      if (! h->rx02)
+      if (h->rx02)
 	dmk_header [4] |= DMK_FLAG_RX02_MASK;
       if (! h->dd)
 	dmk_header [4] |= DMK_FLAG_SD_MASK;

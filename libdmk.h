@@ -114,6 +114,13 @@ int dmk_format_track (dmk_handle h,
 		      int sector_count,
 		      sector_info_t *sector_info);
 
+int dmk_dup_track (dmk_handle sh,
+		   int strack,
+		   int sside,
+		   dmk_handle dh,
+		   int dtrack,
+		   int dside);
+
 
 int dmk_read_id (dmk_handle h,
 		 sector_info_t *sector_info);

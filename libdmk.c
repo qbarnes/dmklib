@@ -998,6 +998,43 @@ int dmk_format_track (dmk_handle h,
 }
 
 
+int dmk_dup_track (dmk_handle sh,
+		   int strack,
+		   int sside,
+		   dmk_handle dh,
+		   int dtrack,
+		   int dside)
+{
+  if (dh->dd != sh->dd ||
+      dh->rx02 != sh->rx02 ||
+      dh->track_length != sh->track_length) {
+    fprintf(stderr, "dmk_dup_track: Source and destination have incompatible "
+		    "formats.\n");
+    return (0);
+  }
+
+  if (!dmk_seek(sh, strack, sside)) {
+    fprintf(stderr, "dmk_dup_track: Failed to find source "
+		    "track %d side %d.\n", strack, sside);
+    return (0);
+  }
+
+  if (!dmk_seek(dh, dtrack, dside)) {
+    fprintf(stderr, "dmk_dup_track: Failed to find destination "
+		    "track %d side %d.\n", dtrack, dside);
+    return (0);
+  }
+
+  memcpy(dh->cur_track, sh->cur_track, sizeof(*sh->cur_track));
+  dh->cur_mode = sh->cur_mode;
+  dh->p = sh->p;
+  dh->cur_track->dirty = 1;
+  dh->read_id_index = 0;
+
+  return (1);
+}
+
+
 static int find_address_mark (dmk_handle h,
 			      sector_info_t *req_sector)
 {

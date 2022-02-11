@@ -220,6 +220,47 @@ static inline void advance_p (dmk_handle h, int count)
     inc_p (h);
 }
 
+
+static int convert_rrd2tracklen(int rpm, int rate, int dd)
+{
+  int tracklen;
+
+  if ((rpm == 360) && (rate == 500) && dd)
+    tracklen = 0x2900;	      /* 8-inch DD, defined in DMK spec
+				 doesn't include IDAM pointers */
+  else if ((rpm == 360) && (rate == 250) && ! dd)
+    tracklen = 0x14a0;	      /* 8-inch SD, defined in DMK spec
+				 doesn't include IDAM pointers */
+  else
+    tracklen = (rate * 7500L) / rpm;
+
+  return tracklen;
+}
+
+
+/*
+ * 0 - if two dmk_parms are incompatible
+ * 1 - if they're compatible
+ */
+
+int dmk_compare_parms (const struct dmk_parms *p1,
+                       const struct dmk_parms *p2)
+{
+  if (p1->ds != p2->ds ||
+      p1->cylinders != p2->cylinders ||
+      p1->dd != p2->dd)
+    return 0;
+
+  int p1tracklen = (p1->rpm == 0 && p1->rate == 0) ? p1->tracklen :
+		    convert_rrd2tracklen(p1->rpm, p1->rate, p1->dd);
+
+  int p2tracklen = (p2->rpm == 0 && p2->rate == 0) ? p2->tracklen :
+		    convert_rrd2tracklen(p2->rpm, p2->rate, p2->dd);
+
+  return (p1tracklen == p2tracklen ? 1 : 0);
+}
+
+
 static int sector_size (int encoding, int sizecode)
 {
   switch(encoding) {
@@ -456,22 +497,16 @@ dmk_handle dmk_create_image_wp (const char *fn,
   h->rpm = dp->rpm;
   h->rate = dp->rate;
 
-  if ((dp->rpm == 360) && (dp->rate == 500) && dp->dd)
-    h->track_length = 0x2900;  /* 8-inch DD, defined in DMK spec
-				  (doesn't include IDAM pointers */
-  else if ((dp->rpm == 360) && (dp->rate == 250) && ! dp->dd)
-    h->track_length = 0x14a0;  /* 8-inch SD, defined in DMK spec
-				  (doesn't include IDAM pointers */
-  else if ((dp->rpm != 0) && (dp->rate != 0))
+  if ((dp->rpm == 0) && (dp->rate == 0))
     {
-      h->track_length = (dp->rate * 7500L) / dp->rpm;
+      h->track_length = dp->tracklen - 2 * DMK_MAX_SECTOR;
+    }
+  else
+    {
+      h->track_length = convert_rrd2tracklen(dp->rpm, dp->rate, dp->dd);
       if (h->track_length > 0x2900)
 	fprintf (stderr, "warning: track length %d exceeds maximum DMK spec\n",
 		 h->track_length);
-    }
-  else 
-    {
-      h->track_length = dp->tracklen - 2 * DMK_MAX_SECTOR;
     }
 
   h->track = calloc (dp->cylinders * (dp->ds + 1), sizeof (track_state_t));

@@ -141,6 +141,9 @@ int dmk_write_sector (dmk_handle h,
 
 int dmk_sector_size (sector_info_t *si);
 
+int dmk_compare_parms (const struct dmk_parms *p1,
+		       const struct dmk_parms *p2);
+
 #undef ADDRESS_MARK_DEBUG
 #ifdef ADDRESS_MARK_DEBUG
 int dmk_check_address_mark (dmk_handle h,

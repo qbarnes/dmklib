@@ -1041,8 +1041,14 @@ static int find_address_mark (dmk_handle h,
 }
 
 
-int dmk_read_id (dmk_handle h,
-		 sector_info_t *sector_info)
+/* -1 - bad read, CRCs returned
+ *  0 - bad read, CRCs not set
+ *  1 - good read, CRCs returned
+ */
+int dmk_read_id_with_crcs (dmk_handle h,
+			   sector_info_t *sector_info,
+			   uint16_t *actual_crc,
+			   uint16_t *computed_crc)
 {
   int j;
   uint8_t mark;
@@ -1094,6 +1100,8 @@ int dmk_read_id (dmk_handle h,
   sector_info->size_code = read_buf_byte (h);
   sector_info->mode      = h->cur_mode;
 
+  int ret = 1;
+
   if (! check_crc (h))
     {
       fprintf (stderr, "dmk_read_id: address mark CRC bad\n");
@@ -1101,10 +1109,20 @@ int dmk_read_id (dmk_handle h,
       fprintf (stderr, "cylinder %d, head %d, sector %d, size code %d\n",
 	       sector_info->cylinder, sector_info->head,
 	       sector_info->sector, sector_info->size_code);
-      return (0);
+      ret = -1;
     }
 
-  return (1);
+  if (actual_crc)   *actual_crc   = h->actual_crc;
+  if (computed_crc) *computed_crc = h->crc;
+
+  return (ret);
+}
+
+
+int dmk_read_id (dmk_handle h,
+		 sector_info_t *sector_info)
+{
+  return(!!dmk_read_id_with_crcs(h, sector_info, NULL, NULL));
 }
 
 

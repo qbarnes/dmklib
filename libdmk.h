@@ -97,6 +97,11 @@ int dmk_format_track (dmk_handle h,
 		      sector_info_t *sector_info);
 
 
+int dmk_read_id_with_crcs (dmk_handle h,
+			   sector_info_t *sector_info,
+			       uint16_t *actual_crc,
+			       uint16_t *computed_crc);
+
 int dmk_read_id (dmk_handle h,
 		 sector_info_t *sector_info);
 

@@ -32,6 +32,9 @@
 #include <string.h>
 #include <assert.h>
 
+#if defined(WIN64) || defined(WIN32)
+#include <windows.h>
+#endif
 
 #include "dmk.h"
 #include "libdmk.h"

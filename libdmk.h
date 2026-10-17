@@ -24,6 +24,8 @@
 #ifndef DMKLIB_LIBDMK_H
 #define DMKLIB_LIBDMK_H
 
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif

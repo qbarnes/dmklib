@@ -895,6 +895,8 @@ int main (int argc, char *argv[])
     {     /* track_info */
       {
 	DENSITY_FM,  /* density */
+	0,    /* log cylinder */
+	0,    /* log head */
 	0,    /* size code - 128 bytes */
 	1,    /* min sector */
 	26    /* max sector */

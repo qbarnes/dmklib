@@ -141,7 +141,7 @@ typedef struct
 {
   int resident;  /* boolean */
   int dirty;     /* boolean */
-  uint8_t  mfm_sector   [DMK_MAX_SECTOR];
+  uint8_t  mfm_sector   [DMK_MAX_SECTOR];  /* sector_mode_t of each ID */
   uint16_t idam_pointer [DMK_MAX_SECTOR];
   uint8_t  idam_rsv     [DMK_MAX_SECTOR];  /* boolean, preserves bit 14 */
   uint8_t *buf;
@@ -598,7 +598,7 @@ int dmk_close_image (dmk_handle h)
 		if (idam_ptr)
 		  {
 		    idam_ptr += 2 * DMK_MAX_SECTOR;
-		    if (track->mfm_sector [sector])
+		    if (track->mfm_sector [sector] == DMK_MFM)
 		      idam_ptr |= DMK_IDAM_POINTER_MFM_MASK;
 		    if (track->idam_rsv [sector])
 		      idam_ptr |= DMK_IDAM_POINTER_RSV_MASK;
@@ -979,7 +979,7 @@ int dmk_format_track (dmk_handle h,
 #if 0
       fprintf (stderr, "sector %d IDAM pointer %d\n", sector, h->p);
 #endif
-      h->cur_track->mfm_sector [sector] = (mode == DMK_MFM);
+      h->cur_track->mfm_sector [sector] = mode;
 
       write_buf_count_data_clock (h, & fmt->id_address_mark [1]);
 #if (DEBUG_CRC >= 2)

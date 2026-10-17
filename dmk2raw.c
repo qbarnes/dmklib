@@ -35,7 +35,7 @@ void print_sector_info (sector_info_t *sector_info)
 	  sector_info->cylinder,
 	  sector_info->head,
 	  sector_info->sector,
-	  128 << sector_info->size_code);
+	  dmk_sector_size (sector_info));
 }
 
 
@@ -133,9 +133,9 @@ int main (int argc, char *argv[])
 			sector_info [sector_index [sector]].head,
 			sector_info [sector_index [sector]].sector,
 			sector_info [sector_index [sector]].size_code);
-		hex_dump (buf, 128 << sector_info [sector_index [sector]].size_code);
+		hex_dump (buf, dmk_sector_size (& sector_info [sector_index [sector]]));
 #endif
-		if (1 != fwrite (buf, 128 << sector_info [sector_index [sector]].size_code, 1, outf))
+		if (1 != fwrite (buf, dmk_sector_size (& sector_info [sector_index [sector]]), 1, outf))
 		  {
 		    fprintf (stderr, "error writing raw file\n");
 		    exit (2);

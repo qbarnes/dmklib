@@ -1188,7 +1188,9 @@ int dmk_read_id_with_crcs (dmk_handle h,
   if (! check_crc (h) || h->overrun)
     {
       fprintf (stderr, "dmk_read_id: address mark CRC bad\n");
-      fprintf (stderr, "mode: %s\n", sector_info->mode == DMK_FM ? "FM" : "MFM");
+      static const char *mode_name [MAX_SECTOR_MODE] =
+	{ "FM", "MFM", "RX02", "M2FM" };
+      fprintf (stderr, "mode: %s\n", mode_name [sector_info->mode]);
       fprintf (stderr, "cylinder %d, head %d, sector %d, size code %d\n",
 	       sector_info->cylinder, sector_info->head,
 	       sector_info->sector, sector_info->size_code);

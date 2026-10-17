@@ -622,7 +622,7 @@ int dmk_seek (dmk_handle h,
 	  if (! dmk_image_file_seek_track (h, cylinder, head))
 	    {
 	      fprintf (stderr, "error seeking image file\n");
-	      exit (2);
+	      goto fail;
 	    }
 	  for (i = 0; i < DMK_MAX_SECTOR; i++)
 	    {
@@ -631,7 +631,7 @@ int dmk_seek (dmk_handle h,
 	      if (1 != fread (d, 2, 1, h->f))
 		{
 		  fprintf (stderr, "error reading image file\n");
-		  exit (2);
+		  goto fail;
 		}
 	      idam_ptr = d [1] << 8 | d [0];
 	      if (idam_ptr == 0)
@@ -639,7 +639,7 @@ int dmk_seek (dmk_handle h,
 	      if (idam_ptr < (2 * DMK_MAX_SECTOR))
 		{
 		  fprintf (stderr, "IDAM pointer out of range\n");
-		  exit (2);
+		  goto fail;
 		}
 	      idam_ptr -= 2 * DMK_MAX_SECTOR;
 	      if (h->rx02)
@@ -658,7 +658,7 @@ int dmk_seek (dmk_handle h,
 	  if (1 != fread (new_track->buf, h->track_length, 1, h->f))
 	    {
 	      fprintf (stderr, "error reading image file\n");
-	      exit (2);
+	      goto fail;
 	    }
 	}
     }
@@ -670,6 +670,12 @@ int dmk_seek (dmk_handle h,
   h->read_id_index = 0;
 
   return (1);
+
+ fail:
+  /* discard the partially loaded track so a later seek retries it */
+  free (new_track->buf);
+  memset (new_track, 0, sizeof (track_state_t));
+  return (0);
 }
 
 

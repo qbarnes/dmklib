@@ -828,8 +828,14 @@ static int compute_gap (dmk_handle h,
   int track_overhead;
   int sector_overhead;
   int data_length;
+  int track_length;
 
   fmt = & track_format [mode];
+
+  /* FM bytes are written twice on a double-density image */
+  track_length = h->track_length;
+  if (h->dd && (mode == DMK_FM))
+    track_length /= 2;
 
   track_overhead = (fmt->pre_index_gap [0].count +
 		    fmt->pre_index_gap [1].count +
@@ -849,15 +855,15 @@ static int compute_gap (dmk_handle h,
   for (sector = 0; sector < sector_count; sector++)
     data_length += (si_sector_size (&sector_info [sector]));
 
-  room = h->track_length - (track_overhead + 
-			    (sector_count * sector_overhead) +
-			    data_length);
+  room = track_length - (track_overhead +
+			  (sector_count * sector_overhead) +
+			  data_length);
 
   /* what's left needs to be divided up for the gap */
   gap = room / sector_count;
 
 #ifdef DEBUG_GAP
-  fprintf (stderr, "track_length: %d\n", h->track_length);
+  fprintf (stderr, "track_length: %d\n", track_length);
   fprintf (stderr, "track_overhead: %d\n", track_overhead);
   fprintf (stderr, "sector_overhead: %d per sector\n", sector_overhead);
   fprintf (stderr, "data_length: %d\n", data_length);

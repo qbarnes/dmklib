@@ -786,7 +786,7 @@ int open_drive (disk_info_t *disk_info, char *fn)
   struct floppy_drive_params fdp;
 
   disk_info->floppy_dev = open (fn, O_RDONLY | O_NDELAY, 0);
-  if (! disk_info->floppy_dev)
+  if (disk_info->floppy_dev < 0)
     return (false);
 
 #if 0

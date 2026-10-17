@@ -510,6 +510,8 @@ int dmk_image_file_seek_track (dmk_handle h, int cylinder, int head)
 int dmk_close_image (dmk_handle h)
 {
   int cylinder, head, sector;
+  int i;
+  int ok = 1;
   track_state_t *track;
   uint8_t b;
 
@@ -537,7 +539,8 @@ int dmk_close_image (dmk_handle h)
       if (1 != fwrite (dmk_header, sizeof (dmk_header), 1, h->f))
 	{
 	  fprintf (stderr, "error writing DMK header\n");
-	  return (0);
+	  ok = 0;
+	  goto done;
 	}
     }
 
@@ -551,7 +554,8 @@ int dmk_close_image (dmk_handle h)
 	    if (! dmk_image_file_seek_track (h, cylinder, head))
 	      {
 		fprintf (stderr, "error seeking image file\n");
-		return (0);
+		ok = 0;
+		goto done;
 	      }
 	    /* write IDAM offsets */
 	    for (sector = 0; sector < DMK_MAX_SECTOR; sector++)
@@ -567,13 +571,15 @@ int dmk_close_image (dmk_handle h)
 		if (1 != fwrite (& b, 1, 1, h->f))
 		  {
 		    fprintf (stderr, "error writing IDAM offset low to image file\n");
-		    return (0);
+		    ok = 0;
+		    goto done;
 		  }
 		b = idam_ptr >> 8;
 		if (1 != fwrite (& b, 1, 1, h->f))
 		  {
 		    fprintf (stderr, "error writing IDAM offset high to image file\n");
-		    return (0);
+		    ok = 0;
+		    goto done;
 		  }
 	      }
 
@@ -584,18 +590,21 @@ int dmk_close_image (dmk_handle h)
 		  fprintf (stderr, "error writing track data to image file\n");
 		else
 		  fprintf (stderr, "fwrite failed writing track data to image file\n");
-		return (0);
+		ok = 0;
+		goto done;
 	      }
 	    track->dirty = 0;
 	  }
-	if (track->buf)
-	  free (track->buf);
       }
 
  done:
-  fclose (h->f);
+  for (i = 0; i < h->cylinders * (h->ds + 1); i++)
+    free (h->track [i].buf);
+  free (h->track);
+  if (fclose (h->f) != 0)
+    ok = 0;
   free (h);
-  return (1);
+  return (ok);
 }
 
 

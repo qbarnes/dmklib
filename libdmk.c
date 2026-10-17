@@ -842,11 +842,12 @@ static int compute_gap (dmk_handle h,
 		    fmt->index_mark [0].count +
 		    fmt->index_mark [1].count);
 
-  sector_overhead = (fmt->id_address_mark [0].count +
-		     fmt->id_address_mark [1].count +
-		     fmt->address_field_length +
+  /* address_field_length already includes the ID address mark, and
+     dmk_format_track() writes id_gap [1] twice, once itself and once
+     via write_data_field() */
+  sector_overhead = (fmt->address_field_length +
 		     fmt->id_gap [0].count +
-		     fmt->id_gap [1].count +
+		     2 * fmt->id_gap [1].count +
 		     fmt->data_field_overhead +
 		     fmt->post_data_gap [0].count +
 		     fmt->post_data_gap [1].count);

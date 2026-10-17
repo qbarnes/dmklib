@@ -442,9 +442,9 @@ dmk_handle dmk_create_image (char *fn,
   h->new_image = 1;
   h->writable = 1;
 
-  h->ds = ds;
+  h->ds = !! ds;
   h->cylinders = cylinders;
-  h->dd = dd;
+  h->dd = !! dd;
   h->rpm = rpm;
   h->rate = rate;
 
@@ -462,7 +462,7 @@ dmk_handle dmk_create_image (char *fn,
 		 h->track_length);
     }
 
-  h->track = calloc (cylinders * (ds + 1), sizeof (track_state_t));
+  h->track = calloc (h->cylinders * (h->ds + 1), sizeof (track_state_t));
   if (! h->track)
     goto fail;
 

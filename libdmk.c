@@ -919,6 +919,10 @@ int dmk_format_track (dmk_handle h,
   if (h->cur_cylinder < 0)
     return (0);
 
+  /* the IDAM pointer table limits the sector count */
+  if ((sector_count < 1) || (sector_count > DMK_MAX_SECTOR))
+    return (0);
+
   /* can't write double-density track to a
      single-density image */
   if (mode & ! h->dd)

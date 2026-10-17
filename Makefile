@@ -101,3 +101,4 @@ dumpids: dumpids.o
 include $(DEPENDS)
 
 
+.PHONY: all dist snap clean

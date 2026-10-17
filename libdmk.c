@@ -1172,7 +1172,7 @@ int dmk_write_sector (dmk_handle h,
 
   /* skip first part of ID gap before commencing write */
   count = track_format [h->cur_mode].id_gap [0].count;
-  if (h->dd & (h->cur_mode == DMK_FM))
+  if (h->dd && (h->cur_mode == DMK_FM))
     count *= 2;
   advance_p (h, count);
   

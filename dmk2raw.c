@@ -120,6 +120,13 @@ int main (int argc, char *argv[])
 	    fprintf (stderr, "sectors discontigous\n");
 	    exit (2);
 	  }
+	/* a duplicated sector number can hide a gap from the count check */
+	for (sector = min_sector; sector <= max_sector; sector++)
+	  if (sector_index [sector] < 0)
+	    {
+	      fprintf (stderr, "sectors discontigous\n");
+	      exit (2);
+	    }
 
 	for (sector = min_sector; sector <= max_sector; sector++)
 	  {

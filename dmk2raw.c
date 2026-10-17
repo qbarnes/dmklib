@@ -54,7 +54,7 @@ int main (int argc, char *argv[])
   sector_info_t sector_info [DMK_MAX_SECTOR];
   int sector_index [256];
 
-  uint8_t buf [1024];
+  uint8_t buf [4096];  /* largest sector size dmklib returns, 16 * 255 for FM */
 
   int i;
 

@@ -367,7 +367,7 @@ dmk_handle dmk_open_image (char *fn,
   if (! h)
     goto fail;
 
-  h->f = fopen (fn, write_enable ? "r+" : "rb");
+  h->f = fopen (fn, write_enable ? "r+b" : "rb");
   if (! h->f)
     goto fail;
 

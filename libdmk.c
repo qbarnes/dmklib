@@ -143,6 +143,7 @@ typedef struct
   int dirty;     /* boolean */
   uint8_t  mfm_sector   [DMK_MAX_SECTOR];
   uint16_t idam_pointer [DMK_MAX_SECTOR];
+  uint8_t  idam_rsv     [DMK_MAX_SECTOR];  /* boolean, preserves bit 14 */
   uint8_t *buf;
 } track_state_t;
 
@@ -599,6 +600,8 @@ int dmk_close_image (dmk_handle h)
 		    idam_ptr += 2 * DMK_MAX_SECTOR;
 		    if (track->mfm_sector [sector])
 		      idam_ptr |= DMK_IDAM_POINTER_MFM_MASK;
+		    if (track->idam_rsv [sector])
+		      idam_ptr |= DMK_IDAM_POINTER_RSV_MASK;
 		  }
 		b = idam_ptr & 0xff;
 		if (1 != fwrite (& b, 1, 1, h->f))
@@ -686,13 +689,15 @@ int dmk_seek (dmk_handle h,
 	  for (i = 0; i < DMK_MAX_SECTOR; i++)
 	    {
 	      uint8_t d [2];
-	      uint16_t idam_ptr;
+	      uint16_t idam_ptr, idam_flags;
 	      if (1 != fread (d, 2, 1, h->f))
 		{
 		  fprintf (stderr, "error reading image file\n");
 		  goto fail;
 		}
 	      idam_ptr = d [1] << 8 | d [0];
+	      idam_flags = idam_ptr & DMK_IDAM_POINTER_FLAGS_MASK;
+	      idam_ptr &= ~ DMK_IDAM_POINTER_FLAGS_MASK;
 	      if (idam_ptr == 0)
 		continue;
 	      if (idam_ptr < (2 * DMK_MAX_SECTOR))
@@ -702,16 +707,12 @@ int dmk_seek (dmk_handle h,
 		}
 	      idam_ptr -= 2 * DMK_MAX_SECTOR;
 	      if (h->rx02)
-		{
-		  new_track->mfm_sector [i] = DMK_RX02;
-		}
-	      else if (idam_ptr & DMK_IDAM_POINTER_MFM_MASK)
-		{
-		  new_track->mfm_sector [i] = DMK_MFM;
-		  idam_ptr &= ~ DMK_IDAM_POINTER_FLAGS_MASK;
-		}
+		new_track->mfm_sector [i] = DMK_RX02;
+	      else if (idam_flags & DMK_IDAM_POINTER_MFM_MASK)
+		new_track->mfm_sector [i] = DMK_MFM;
 	      else
 		new_track->mfm_sector [i] = DMK_FM;
+	      new_track->idam_rsv [i] = !! (idam_flags & DMK_IDAM_POINTER_RSV_MASK);
 	      new_track->idam_pointer [i] = idam_ptr;
 	    }
 	  if (1 != fread (new_track->buf, h->track_length, 1, h->f))
@@ -952,6 +953,7 @@ int dmk_format_track (dmk_handle h,
     return (0);
 
   memset (h->cur_track->idam_pointer, 0, sizeof (h->cur_track->idam_pointer));
+  memset (h->cur_track->idam_rsv, 0, sizeof (h->cur_track->idam_rsv));
 
   set_p (h, 0);
 

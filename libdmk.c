@@ -26,6 +26,7 @@
 #undef DEBUG_GAP
 
 
+#include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -417,7 +418,15 @@ dmk_handle dmk_open_image (char *fn,
 
  fail:
   if (h)
-    free (h);
+    {
+      int saved_errno = errno;
+
+      free (h->track);
+      if (h->f)
+	fclose (h->f);
+      free (h);
+      errno = saved_errno;
+    }
   return (NULL);
 }
 
@@ -477,7 +486,15 @@ dmk_handle dmk_create_image (char *fn,
 
  fail:
   if (h)
-    free (h);
+    {
+      int saved_errno = errno;
+
+      free (h->track);
+      if (h->f)
+	fclose (h->f);
+      free (h);
+      errno = saved_errno;
+    }
   return (NULL);
 }
 

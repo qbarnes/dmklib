@@ -21,6 +21,11 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111  USA
  */
 
+#ifndef DMKLIB_DMK_H
+#define DMKLIB_DMK_H
+
+#include <stdint.h>
+
 
 #define DMK_HEADER_LENGTH 16
 
@@ -65,3 +70,5 @@ typedef struct
 
 #define DMK_IDAM_POINTER_FLAGS_MASK (DMK_IDAM_POINTER_MFM_MASK | \
 				     DMK_IDAM_POINTER_RSV_MASK)
+
+#endif

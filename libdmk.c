@@ -31,7 +31,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <assert.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -177,7 +176,8 @@ struct dmk_state
 
   uint16_t actual_crc;
   uint16_t crc;
-  int p;  /* index into buf */
+  int p;  /* index into buf, -1 once past end of track */
+  int overrun;  /* boolean, an access was attempted past end of track */
 
   int read_id_index;
 };
@@ -202,18 +202,23 @@ static void compute_crc (dmk_handle h, uint8_t data)
 }
 
 
-/* should never happen!  sectors aren't allowed to wrap around. */
-static void wrap_p (dmk_handle h)
+static void set_p (dmk_handle h, int p)
 {
-  h->p = -1;
+  h->p = p;
+  h->overrun = 0;
 }
 
 
+/* Sectors aren't allowed to wrap around, so once past the end of the
+   track p stays at -1, and any further access sets h->overrun instead
+   of touching the buffer. */
 static inline void inc_p (dmk_handle h)
 {
+  if (h->p < 0)
+    return;
   h->p++;
   if (h->p >= h->track_length)
-    wrap_p (h);
+    h->p = -1;
 }
 
 static inline void advance_p (dmk_handle h, int count)
@@ -256,10 +261,15 @@ static void read_buf (dmk_handle h,
 		      uint8_t *data)
 {
   uint8_t b;
-  assert (h->p >= 0);
   while (len--)
     {
-      b = h->cur_track->buf [h->p];
+      if (h->p < 0)
+	{
+	  h->overrun = 1;
+	  b = 0;
+	}
+      else
+	b = h->cur_track->buf [h->p];
       inc_p (h);
       if (h->dd && ((h->cur_mode == DMK_FM) || h->cur_mode == DMK_RX02))
 	inc_p (h);
@@ -306,16 +316,24 @@ static void write_buf (dmk_handle h,
   if (! h->writable)
     return;  /* ideally we wouldn't get this far */
 
-  assert (h->p >= 0);
-
   h->cur_track->dirty = 1;
   while (len--)
     {
       compute_crc (h, *data);
+      if (h->p < 0)
+	{
+	  h->overrun = 1;
+	  return;
+	}
       h->cur_track->buf [h->p] = *data;
       inc_p (h);
       if (h->dd && (h->cur_mode == DMK_FM))
 	{
+	  if (h->p < 0)
+	    {
+	      h->overrun = 1;
+	      return;
+	    }
 	  h->cur_track->buf [h->p] = *data;
 	  inc_p (h);
 	}
@@ -725,7 +743,7 @@ static int write_data_field (dmk_handle h,
   write_crc (h);
   write_buf_count_data (h, & fmt->post_data_gap [0]);
 
-  return (1);
+  return (! h->overrun);
 }
 
 
@@ -749,8 +767,10 @@ static int read_data_field_with_crcs (dmk_handle h,
       b = read_buf_byte (h);
       if ((b >= 0xf8) && (b <= 0xfd))
 	break;
+      if (h->overrun)
+	break;  /* read on, as zeros, so CRCs are set and -1 is returned */
     }
-  if (i >= MAX_ID_GAP)
+  if ((i >= MAX_ID_GAP) && ! h->overrun)
     return (0);
 
   /* temporarily flip current mode to MFM when processing RX02 data field */
@@ -767,7 +787,7 @@ static int read_data_field_with_crcs (dmk_handle h,
     }
   compute_crc (h, b);  /* the data mark is included in the CRC */
   read_buf (h, si_sector_size (sector_info), data);
-  int ret = check_crc (h) ? 1 : -1;
+  int ret = (check_crc (h) && ! h->overrun) ? 1 : -1;
   if (actual_crc)   *actual_crc   = h->actual_crc;
   if (computed_crc) *computed_crc = h->crc;
 
@@ -914,7 +934,7 @@ int dmk_format_track (dmk_handle h,
 
   memset (h->cur_track->idam_pointer, 0, sizeof (h->cur_track->idam_pointer));
 
-  h->p = 0;
+  set_p (h, 0);
 
   write_buf_count_data (h, & fmt->pre_index_gap [0]);
   write_buf_count_data (h, & fmt->pre_index_gap [1]);
@@ -997,12 +1017,12 @@ int dmk_format_track (dmk_handle h,
     }
 
   /* fill rest of track (gap 4) */
-  gap4_len = h->track_length - h->p;
+  gap4_len = (h->p < 0) ? 0 : (h->track_length - h->p);
   if (h->dd && (h->cur_mode == DMK_FM))
     gap4_len /= 2;
   write_buf_const (h, gap4_len, fmt->gap_4_data);
 
-  return (1);
+  return (! h->overrun);
 }
 
 
@@ -1026,7 +1046,7 @@ static int find_address_mark (dmk_handle h,
 
   for (i = 0; i < DMK_MAX_SECTOR; i++)
     {
-      h->p = h->cur_track->idam_pointer [i];
+      set_p (h, h->cur_track->idam_pointer [i]);
       if (h->p == 0)
 	break;  /* sectors must be in consecutive slots, no zero entries
 		   in IDAM pointer table until end. */
@@ -1056,7 +1076,7 @@ static int find_address_mark (dmk_handle h,
       sector_info.head      = read_buf_byte (h);
       sector_info.sector    = read_buf_byte (h);
       sector_info.size_code = read_buf_byte (h);
-      if (! check_crc (h))
+      if (! check_crc (h) || h->overrun)
 	{
 	  fprintf (stderr, "find_address_mark: address mark CRC bad\n");
 	  continue;
@@ -1100,7 +1120,7 @@ int dmk_read_id_with_crcs (dmk_handle h,
     return (0);
 
   h->cur_mode = h->cur_track->mfm_sector [h->read_id_index];
-  h->p = h->cur_track->idam_pointer [h->read_id_index++];
+  set_p (h, h->cur_track->idam_pointer [h->read_id_index++]);
 
   if (h->p == 0)
     return (0);
@@ -1137,7 +1157,7 @@ int dmk_read_id_with_crcs (dmk_handle h,
 
   int ret = 1;
 
-  if (! check_crc (h))
+  if (! check_crc (h) || h->overrun)
     {
       fprintf (stderr, "dmk_read_id: address mark CRC bad\n");
       fprintf (stderr, "mode: %s\n", sector_info->mode == DMK_FM ? "FM" : "MFM");

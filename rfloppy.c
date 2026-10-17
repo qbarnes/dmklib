@@ -37,6 +37,16 @@
 #include "libdmk.h"
 
 
+/* DMKLIB_VERSION is passed by the Makefile as a bare token, e.g. 0.31 */
+#define STRINGIFY_(x) #x
+#define STRINGIFY(x) STRINGIFY_(x)
+#ifdef DMKLIB_VERSION
+#define VERSION_STRING STRINGIFY (DMKLIB_VERSION)
+#else
+#define VERSION_STRING "unknown"
+#endif
+
+
 #define MAX_CYLINDERS 85
 #define MAX_HEADS      2
 
@@ -914,7 +924,7 @@ int main (int argc, char *argv[])
 
   progname = argv [0];
 
-  printf ("%s version $Rev$\n", progname);
+  printf ("%s version %s\n", progname, VERSION_STRING);
   printf ("Copyright 2002, 2003 Eric Smith <eric@brouhaha.com>\n");
 
   while (argc > 1)

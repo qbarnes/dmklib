@@ -76,7 +76,7 @@ typedef struct
 } track_format_t;
 
 
-track_format_t track_format [MAX_SECTOR_MODE] =
+static track_format_t track_format [MAX_SECTOR_MODE] =
 {
   { /* FM */
     /* pre_index_gap */         {{ 40, 0xff },       {  6, 0x00 }},
@@ -517,10 +517,10 @@ dmk_handle dmk_create_image (char *fn,
 }
 
 
-int dmk_image_file_seek_track (dmk_handle h, int cylinder, int head)
+static int dmk_image_file_seek_track (dmk_handle h, int cylinder, int head)
 {
-  int pos = DMK_HEADER_LENGTH + (((h->ds + 1) * cylinder + head) *
-				 ((2 * DMK_MAX_SECTOR) + h->track_length));
+  long pos = DMK_HEADER_LENGTH + (((h->ds + 1) * cylinder + head) *
+				  ((2L * DMK_MAX_SECTOR) + h->track_length));
   return (0 <= fseek (h->f, pos, SEEK_SET));
 }
 

@@ -120,7 +120,6 @@ int main (int argc, char *argv[])
   int seek_cylinder, seek_head;
   int cylinder, head, sector, sector_size;
   int fm, rate;
-  int reset_now;
 
   if (argc != 6)
     {
@@ -142,7 +141,8 @@ int main (int argc, char *argv[])
   fm = atoi (argv [4]);
   rate = atoi (argv [5]);
 
-  if (0 > ioctl (dev, FDRESET, & reset_now))
+  /* FDRESET takes the reset mode by value, not by pointer */
+  if (0 > ioctl (dev, FDRESET, FD_RESET_IF_NEEDED))
     {
       fprintf (stderr, "can't reset drive\n");
       exit (2);

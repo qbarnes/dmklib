@@ -122,8 +122,9 @@ void print_fdc_status (FILE *f, struct floppy_raw_cmd *cmd)
 
 bool reset_drive (disk_info_t *disk_info)
 {
-  int reset_now = FD_RESET_IF_NEEDED; /* FD_RESET_ALWAYS */
-  if (0 > ioctl (disk_info->floppy_dev, FDRESET, & reset_now))
+  /* FDRESET takes the reset mode by value, not by pointer */
+  if (0 > ioctl (disk_info->floppy_dev, FDRESET,
+		 FD_RESET_IF_NEEDED /* FD_RESET_ALWAYS */))
     {
       fprintf (stderr, "can't reset drive\n");
       return (false);

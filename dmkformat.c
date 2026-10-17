@@ -1,5 +1,5 @@
 /*
- * rfloppy - read floppy disks
+ * dmkformat - create and format a DMK disk image
  *
  * $Id: dmkformat.c,v 1.3 2002/10/19 23:36:34 eric Exp $
  *
@@ -43,7 +43,7 @@ int main (int argc, char *argv[])
     exit (1);
 
   h = dmk_create_image (argv [1],
-			0,  /* double-sided */
+			0,  /* not double-sided */
 			CYLINDER_COUNT,
 			0, /* not double density */
 			360, /* RPM */
@@ -70,7 +70,7 @@ int main (int argc, char *argv[])
 	  sector_info [i].size_code  = 0;
 	  sector_info [i].mode       = DMK_FM;
 	  sector_info [i].write_data = 1;
-	  sector_info [i].data_value = 0xe5;  /* not used */
+	  sector_info [i].data_value = 0xe5;
 	}
 
       if (! dmk_format_track (h, DMK_FM, 26, sector_info))

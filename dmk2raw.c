@@ -1,5 +1,5 @@
 /*
- * rfloppy - read floppy disks
+ * dmk2raw - convert a DMK disk image to a raw sector image
  *
  * $Id: dmk2raw.c,v 1.3 2002/10/19 23:36:21 eric Exp $
  *

@@ -465,6 +465,13 @@ int try_track (int cylinder, int head,
       }
 
   track_info->size_code = id_info [0].size_code;
+  if (track_info->size_code > 3)
+    {
+      /* read_track()'s buffer holds at most a 1024-byte sector */
+      fprintf (stderr, "unsupported sector size code %d on cylinder %d head %d\n",
+	       track_info->size_code, cylinder, head);
+      return (false);
+    }
 
   /* find the minimum and maximum sector numbers */
   find_min_max_sector (track_info, id_info, MAX_ID_READ);

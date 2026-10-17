@@ -1205,7 +1205,7 @@ int dmk_read_id_with_crcs (dmk_handle h,
 int dmk_read_id (dmk_handle h,
 		 sector_info_t *sector_info)
 {
-  return(!!dmk_read_id_with_crcs(h, sector_info, NULL, NULL));
+  return(dmk_read_id_with_crcs(h, sector_info, NULL, NULL) == 1);
 }
 
 
@@ -1233,7 +1233,7 @@ int dmk_read_sector (dmk_handle h,
 		     sector_info_t *sector_info,
 		     uint8_t *data)
 {
-  return(!!dmk_read_sector_with_crcs(h, sector_info, data, NULL, NULL));
+  return(dmk_read_sector_with_crcs(h, sector_info, data, NULL, NULL) == 1);
 }
 
 

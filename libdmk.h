@@ -108,6 +108,8 @@ int dmk_read_id_with_crcs (dmk_handle h,
 			       uint16_t *actual_crc,
 			       uint16_t *computed_crc);
 
+/* Returns 1 for a good ID, 0 at the end of the IDs or for an ID with
+   a CRC error.  Use dmk_read_id_with_crcs() to read past bad IDs. */
 int dmk_read_id (dmk_handle h,
 		 sector_info_t *sector_info);
 
@@ -117,6 +119,8 @@ int dmk_read_sector_with_crcs (dmk_handle h,
 			       uint16_t *actual_crc,
 			       uint16_t *computed_crc);
 
+/* Returns 1 for a good read, 0 if the sector is missing or has a CRC
+   error.  Use dmk_read_sector_with_crcs() to tell the two apart. */
 int dmk_read_sector (dmk_handle h,
 		     sector_info_t *sector_info,
 		     uint8_t *data);

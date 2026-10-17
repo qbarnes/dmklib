@@ -22,6 +22,7 @@
  */
 
 
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -32,7 +33,6 @@
 #include <linux/fdreg.h>
 
 
-typedef int bool;
 typedef unsigned char u8;
 
 

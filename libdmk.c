@@ -457,6 +457,34 @@ dmk_handle dmk_create_image (char *fn,
 			     int rate)  /* 125, 250, 300, or 500 Kbps */
 {
   dmk_handle h;
+  long track_length;
+
+  /* validate before fopen() truncates the file */
+  if ((cylinders < 1) || (cylinders > 255) || (rpm <= 0) || (rate <= 0))
+    {
+      errno = EINVAL;
+      return (NULL);
+    }
+
+  if ((rpm == 360) && (rate == 500) && dd)
+    track_length = 0x2900;  /* 8-inch DD, defined in DMK spec
+			       (doesn't include IDAM pointers */
+  else if ((rpm == 360) && (rate == 250) && ! dd)
+    track_length = 0x14a0;  /* 8-inch SD, defined in DMK spec
+			       (doesn't include IDAM pointers */
+  else
+    {
+      track_length = (rate * 7500L) / rpm;
+      if ((track_length < 1) ||
+	  (track_length + 2 * DMK_MAX_SECTOR > 0xffff))
+	{
+	  errno = EINVAL;
+	  return (NULL);
+	}
+      if (track_length > 0x2900)
+	fprintf (stderr, "warning: track length %ld exceeds maximum DMK spec\n",
+		 track_length);
+    }
 
   h = calloc (1, sizeof (struct dmk_state));
   if (! h)
@@ -474,20 +502,7 @@ dmk_handle dmk_create_image (char *fn,
   h->dd = !! dd;
   h->rpm = rpm;
   h->rate = rate;
-
-  if ((rpm == 360) && (rate == 500) && dd)
-    h->track_length = 0x2900;  /* 8-inch DD, defined in DMK spec
-				  (doesn't include IDAM pointers */
-  else if ((rpm == 360) && (rate == 250) && ! dd)
-    h->track_length = 0x14a0;  /* 8-inch SD, defined in DMK spec
-				  (doesn't include IDAM pointers */
-  else
-    {
-      h->track_length = (rate * 7500L) / rpm;
-      if (h->track_length > 0x2900)
-	fprintf (stderr, "warning: track length %d exceeds maximum DMK spec\n",
-		 h->track_length);
-    }
+  h->track_length = track_length;
 
   h->track = calloc (h->cylinders * (h->ds + 1), sizeof (track_state_t));
   if (! h->track)

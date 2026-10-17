@@ -74,8 +74,12 @@ dmk_handle dmk_create_image (char *fn,
  * single density if some sectors may be double
  * density (e.g., DEC RX02 format).
  *
- * If rpm and rate are non-zero, they well be used (together with dd)
- * to set the appropriate track length.
+ * rpm and rate are used (together with dd) to set the appropriate
+ * track length, and must be non-zero.
+ *
+ * Returns NULL with errno set to EINVAL if cylinders isn't 1..255, or
+ * if rpm or rate isn't positive or yields an unrepresentable track
+ * length.  The arguments are checked before fn is created or truncated.
  */
 
 

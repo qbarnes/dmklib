@@ -589,10 +589,10 @@ int dmk_seek (dmk_handle h,
   track_state_t *new_track;
   int i;
 
-  if (cylinder > h->cylinders)
+  if ((cylinder < 0) || (cylinder >= h->cylinders))
     return (0);
 
-  if (head && ! h->ds)
+  if ((head < 0) || (head > h->ds))
     return (0);
 
   if ((cylinder == h->cur_cylinder) &&

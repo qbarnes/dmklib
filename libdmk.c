@@ -32,7 +32,7 @@
 #include <string.h>
 #include <assert.h>
 
-#if defined(WIN64) || defined(WIN32)
+#ifdef _WIN32
 #include <windows.h>
 #endif
 

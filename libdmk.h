@@ -81,11 +81,21 @@ typedef struct
 			      real-disk pointer file */
 } dmk_header_t;
 
-/* raw points to the 16 header bytes */
+/*
+ * Convert the 16 header bytes at raw into *hdr.
+ */
 void dmk_header_decode (const uint8_t *raw, dmk_header_t *hdr);
+
+/*
+ * Convert *hdr into the 16 header bytes at raw.
+ */
 void dmk_header_encode (const dmk_header_t *hdr, uint8_t *raw);
 
-/* For an image from dmk_create_image (), the header it will write. */
+/*
+ * Copy an open image's header into *hdr.  For an image from
+ * dmk_create_image () or dmk_create_image_from_header (), it is the
+ * header that dmk_close_image () will write.
+ */
 void dmk_get_header (dmk_handle h, dmk_header_t *hdr);
 
 
@@ -127,10 +137,15 @@ dmk_handle dmk_create_image (const char *fn,
  * protect, quirks, reserved, and real_format bytes, for copying an
  * image.  flags is 0 or DMK_CREATE_EXCL.
  *
- * Returns NULL with errno set to EINVAL if flags is unknown,
- * track_count is 0, track_length leaves no room after the IDAM pointer
- * table, or real_format is DMK_REAL_DISK, which are checked before fn
- * is created or truncated.  Nothing is printed.
+ * Returns a handle on success.  Returns NULL with errno set on failure:
+ *   EINVAL  flags is unknown, track_count is 0, track_length leaves no
+ *           room after the IDAM pointer table, or real_format is
+ *           DMK_REAL_DISK.  These are checked before fn is created or
+ *           truncated.
+ *   EEXIST  DMK_CREATE_EXCL was given and fn exists.
+ *   other   from open (), fopen (), or memory allocation.  A file
+ *           created with DMK_CREATE_EXCL is removed again.
+ * Nothing is printed.
  */
 dmk_handle dmk_create_image_from_header (const char *fn,
 					 const dmk_header_t *hdr,
@@ -164,14 +179,20 @@ int dmk_seek (dmk_handle h,
  * Read or write one track exactly as stored in the file: the 128-byte
  * IDAM pointer table followed by the track data.  len must equal the
  * header's track_length.  Nothing is decoded, checked, or rebuilt, so a
- * copy made this way is byte-for-byte identical.  Reading an unwritten
- * track of a new image gives a blank track (zero pointer table, FF
- * data), which is what dmk_close_image () writes for it.
+ * copy made this way is byte-for-byte identical.
+ */
+
+/*
+ * Read a track into buf.  A track of a new image that hasn't been
+ * written reads as blank (zero pointer table, FF data), which is what
+ * dmk_close_image () writes for it.  A track written since the image
+ * was opened reads as written.
  *
- * Returns 1 on success, or 0 with errno set: EINVAL for a bad cylinder,
- * side, or length, EBADF to write an image opened read-only, EIO if the
- * track is past the end of a truncated file, or ENOMEM.  Nothing is
- * printed.
+ * Returns 1 on success.  Returns 0 with errno set on failure:
+ *   EINVAL  cylinder, side, or len is out of range.
+ *   EIO     the track is past the end of a truncated file.
+ *   other   from fseek () or fread ().
+ * Nothing is printed.
  */
 int dmk_read_track_raw (dmk_handle h,
 			int cylinder,
@@ -179,6 +200,18 @@ int dmk_read_track_raw (dmk_handle h,
 			uint8_t *buf,
 			size_t len);
 
+/*
+ * Replace a track with buf.  The file is updated by dmk_close_image ().
+ * The track's pointer table is decoded for dmk_read_id () and the other
+ * sector calls, where a bad pointer ends the table, but the table is
+ * written back exactly as given.
+ *
+ * Returns 1 on success.  Returns 0 with errno set on failure:
+ *   EINVAL  cylinder, side, or len is out of range.
+ *   EBADF   the image was opened read-only.
+ *   ENOMEM  no memory for the track.
+ * Nothing is printed.
+ */
 int dmk_write_track_raw (dmk_handle h,
 			 int cylinder,
 			 int side,

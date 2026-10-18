@@ -856,6 +856,105 @@ int dmk_seek (dmk_handle h,
 }
 
 
+/* Returns the track, or NULL with errno set to EINVAL. */
+static track_state_t *raw_track (dmk_handle h,
+				 int cylinder,
+				 int head,
+				 size_t len)
+{
+  if ((cylinder < 0) || (cylinder >= h->cylinders) ||
+      (head < 0) || (head > h->ds) ||
+      (len != (size_t) h->track_length + 2 * DMK_MAX_SECTOR))
+    {
+      errno = EINVAL;
+      return (NULL);
+    }
+  return (& h->track [(h->ds + 1) * cylinder + head]);
+}
+
+
+int dmk_read_track_raw (dmk_handle h,
+			int cylinder,
+			int head,
+			uint8_t *buf,
+			size_t len)
+{
+  track_state_t *track;
+
+  track = raw_track (h, cylinder, head, len);
+  if (! track)
+    return (0);
+
+  if (track->buf)
+    {
+      /* the cached copy may be newer than the file */
+      if (! track->idam_table_valid)
+	encode_idam_table (track);
+      memcpy (buf, track->idam_table, sizeof (track->idam_table));
+      memcpy (buf + sizeof (track->idam_table), track->buf, h->track_length);
+      return (1);
+    }
+
+  if (h->new_image)
+    {
+      memset (buf, 0, sizeof (track->idam_table));
+      memset (buf + sizeof (track->idam_table), 0xff, h->track_length);
+      return (1);
+    }
+
+  if (! dmk_image_file_seek_track (h, cylinder, head))
+    return (0);
+  if (1 != fread (buf, len, 1, h->f))
+    {
+      if (! ferror (h->f))
+	errno = EIO;  /* past the end of the file */
+      clearerr (h->f);
+      return (0);
+    }
+  return (1);
+}
+
+
+int dmk_write_track_raw (dmk_handle h,
+			 int cylinder,
+			 int head,
+			 const uint8_t *buf,
+			 size_t len)
+{
+  track_state_t *track;
+
+  track = raw_track (h, cylinder, head, len);
+  if (! track)
+    return (0);
+
+  if (! h->writable)
+    {
+      errno = EBADF;
+      return (0);
+    }
+
+  if (! track->buf)
+    {
+      track->buf = malloc (h->track_length);
+      if (! track->buf)
+	return (0);
+    }
+
+  memcpy (track->idam_table, buf, sizeof (track->idam_table));
+  memcpy (track->buf, buf + sizeof (track->idam_table), h->track_length);
+  track->idam_table_valid = 1;
+  /* a bad pointer just ends the table for dmk_read_id () and friends;
+     the raw table is still written back as given */
+  (void) decode_idam_table (h, track);
+  track->dirty = 1;
+
+  if (track == h->cur_track)
+    h->read_id_index = 0;
+
+  return (1);
+}
+
+
 static int write_data_field (dmk_handle h,
 			     const sector_info_t *sector_info,
 			     int single_value,  /* boolean */

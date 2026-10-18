@@ -24,6 +24,7 @@
 #ifndef DMKLIB_LIBDMK_H
 #define DMKLIB_LIBDMK_H
 
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 
@@ -131,6 +132,32 @@ int dmk_close_image (dmk_handle h);
 int dmk_seek (dmk_handle h,
 	      int cylinder,
 	      int side);
+
+
+/*
+ * Read or write one track exactly as stored in the file: the 128-byte
+ * IDAM pointer table followed by the track data.  len must equal the
+ * header's track_length.  Nothing is decoded, checked, or rebuilt, so a
+ * copy made this way is byte-for-byte identical.  Reading an unwritten
+ * track of a new image gives a blank track (zero pointer table, FF
+ * data), which is what dmk_close_image () writes for it.
+ *
+ * Returns 1 on success, or 0 with errno set: EINVAL for a bad cylinder,
+ * side, or length, EBADF to write an image opened read-only, EIO if the
+ * track is past the end of a truncated file, or ENOMEM.  Nothing is
+ * printed.
+ */
+int dmk_read_track_raw (dmk_handle h,
+			int cylinder,
+			int side,
+			uint8_t *buf,
+			size_t len);
+
+int dmk_write_track_raw (dmk_handle h,
+			 int cylinder,
+			 int side,
+			 const uint8_t *buf,
+			 size_t len);
 
 
 int dmk_format_track (dmk_handle h,

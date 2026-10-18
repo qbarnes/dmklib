@@ -61,6 +61,20 @@ typedef struct
 #define DMK_REAL_DISK 0x12345678
 
 
+/* header byte 5, cw2dmk extension recording how a disk was read */
+#define DMK_QUIRK_ID_CRC     0x01  /* MFM ID CRC omits the A1 premarks */
+#define DMK_QUIRK_DATA_CRC   0x02  /* MFM data CRC omits the A1 premarks */
+#define DMK_QUIRK_PREMARK    0x04
+#define DMK_QUIRK_EXTRA      0x08  /* extra bytes after the data CRC */
+#define DMK_QUIRK_EXTRA_CRC  0x10  /* extra bytes after the data CRC,
+				      ending in their own CRC */
+#define DMK_QUIRK_EXTRA_DATA 0x20  /* 4 extra data bytes before the
+				      data CRC */
+#define DMK_QUIRK_IAM        0x40
+#define DMK_QUIRK_MFM_CLOCK  0x80
+#define DMK_QUIRK_ALL        0xff
+
+
 
 #define DMK_IDAM_POINTER_MFM_BIT  15
 #define DMK_IDAM_POINTER_MFM_MASK (1 << DMK_IDAM_POINTER_MFM_BIT)
@@ -70,5 +84,14 @@ typedef struct
 
 #define DMK_IDAM_POINTER_FLAGS_MASK (DMK_IDAM_POINTER_MFM_MASK | \
 				     DMK_IDAM_POINTER_RSV_MASK)
+
+
+/* names used by cw2dmk and gw2dmk */
+#define DMK_SSIDE_OPT  DMK_FLAG_SS_MASK
+#define DMK_RX02_OPT   DMK_FLAG_RX02_MASK
+#define DMK_SDEN_OPT   DMK_FLAG_SD_MASK
+#define DMK_IGNDEN_OPT DMK_FLAG_NO_DENSITY_MASK
+#define DMK_DDEN_FLAG  DMK_IDAM_POINTER_MFM_MASK
+#define DMK_EXTRA_FLAG DMK_IDAM_POINTER_RSV_MASK
 
 #endif

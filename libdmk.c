@@ -968,6 +968,11 @@ int dmk_format_track (dmk_handle h,
   if ((mode != DMK_FM) && ! h->dd)
     return (0);
 
+  /* RX02 writing isn't implemented: the data field would need DEC's
+     data marks and MFM bytes after an FM mark */
+  if (mode == DMK_RX02)
+    return (0);
+
   h->cur_mode = mode;
   fmt = & track_format [mode];
 
@@ -1261,6 +1266,10 @@ int dmk_write_sector (dmk_handle h,
 		      uint8_t *data)
 {
   int count;
+
+  /* RX02 writing isn't implemented, see dmk_format_track () */
+  if (sector_info->mode == DMK_RX02)
+    return (0);
 
   /* find address mark */
   if (! find_address_mark (h, sector_info))

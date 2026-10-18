@@ -226,9 +226,11 @@ int dmk_format_track (dmk_handle h,
 		      int sector_count,
 		      const sector_info_t *sector_info);
 
-/* dmk_format_track () and dmk_write_sector () don't support DMK_RX02
-   yet, and return 0 for it.  They also return 0 on an image whose
-   quirks byte has DMK_QUIRK_EXTRA_DATA. */
+/* dmk_format_track () and dmk_write_sector () write DMK_RX02 sectors
+   only on an image whose header has DMK_FLAG_RX02_MASK set and isn't
+   single density, as made by dmk_create_image_from_header (), and
+   return 0 otherwise.  They also return 0 on an image whose quirks byte
+   has DMK_QUIRK_EXTRA_DATA. */
 
 
 int dmk_read_id_with_crcs (dmk_handle h,

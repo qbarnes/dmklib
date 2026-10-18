@@ -69,7 +69,7 @@ typedef struct dmk_state *dmk_handle;
 void dmk_set_diagnostic_stream (FILE *f);
 
 
-dmk_handle dmk_create_image (char *fn,
+dmk_handle dmk_create_image (const char *fn,
 			     int ds,    /* boolean */
 			     int cylinders,
 			     int dd,    /* boolean */
@@ -92,7 +92,7 @@ dmk_handle dmk_create_image (char *fn,
  */
 
 
-dmk_handle dmk_open_image (char *fn,
+dmk_handle dmk_open_image (const char *fn,
 			   int write_enable,
 			   int *ds,
 			   int *cylinders,
@@ -109,7 +109,7 @@ int dmk_seek (dmk_handle h,
 int dmk_format_track (dmk_handle h,
 		      sector_mode_t mode,
 		      int sector_count,
-		      sector_info_t *sector_info);
+		      const sector_info_t *sector_info);
 
 /* dmk_format_track () and dmk_write_sector () don't support DMK_RX02
    yet, and return 0 for it. */
@@ -138,10 +138,10 @@ int dmk_read_sector (dmk_handle h,
 		     uint8_t *data);
 
 int dmk_write_sector (dmk_handle h,
-		      sector_info_t *sector_info,
-		      uint8_t *data);
+		      const sector_info_t *sector_info,
+		      const uint8_t *data);
 
-int dmk_sector_size (sector_info_t *si);
+int dmk_sector_size (const sector_info_t *si);
 
 #undef ADDRESS_MARK_DEBUG
 #ifdef ADDRESS_MARK_DEBUG

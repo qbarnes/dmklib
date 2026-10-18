@@ -274,12 +274,12 @@ static int sector_size (int encoding, int sizecode)
   }
 }
 
-static int si_sector_size (sector_info_t *si)
+static int si_sector_size (const sector_info_t *si)
 {
   return sector_size (si->mode, si->size_code);
 }
 
-int dmk_sector_size (sector_info_t *si)
+int dmk_sector_size (const sector_info_t *si)
 {
   return si_sector_size (si);
 }
@@ -339,7 +339,7 @@ static int check_crc (dmk_handle h)
 
 static void write_buf (dmk_handle h,
 		       int len,
-		       uint8_t *data)
+		       const uint8_t *data)
 {
   if (! h->writable)
     return;  /* ideally we wouldn't get this far */
@@ -401,7 +401,7 @@ static void write_crc (dmk_handle h)
 }
 
 
-dmk_handle dmk_open_image (char *fn,
+dmk_handle dmk_open_image (const char *fn,
 			   int write_enable,
 			   int *ds,
 			   int *cylinders,
@@ -495,7 +495,7 @@ dmk_handle dmk_open_image (char *fn,
 }
 
 
-dmk_handle dmk_create_image (char *fn,
+dmk_handle dmk_create_image (const char *fn,
 			     int ds,    /* boolean */
 			     int cylinders,
 			     int dd,    /* boolean */
@@ -788,9 +788,9 @@ int dmk_seek (dmk_handle h,
 
 
 static int write_data_field (dmk_handle h,
-			     sector_info_t *sector_info,
+			     const sector_info_t *sector_info,
 			     int single_value,  /* boolean */
-			     uint8_t *data)
+			     const uint8_t *data)
 {
   track_format_t *fmt;
 
@@ -865,7 +865,7 @@ static int read_data_field_with_crcs (dmk_handle h,
 static int compute_gap (dmk_handle h,
 			sector_mode_t mode,
 			int sector_count,
-			sector_info_t *sector_info,
+			const sector_info_t *sector_info,
 			count_data_t *pre_sector_gap)
 {
   track_format_t *fmt;
@@ -977,7 +977,7 @@ static int compute_gap (dmk_handle h,
 int dmk_format_track (dmk_handle h,
 		      sector_mode_t mode,
 		      int sector_count,
-		      sector_info_t *sector_info)
+		      const sector_info_t *sector_info)
 {
   int sector;
   int gap4_len;
@@ -1106,7 +1106,7 @@ int dmk_format_track (dmk_handle h,
 
 
 static int find_address_mark (dmk_handle h,
-			      sector_info_t *req_sector)
+			      const sector_info_t *req_sector)
 {
   int i, j;
   uint8_t mark;
@@ -1291,8 +1291,8 @@ int dmk_read_sector (dmk_handle h,
 
 
 int dmk_write_sector (dmk_handle h,
-		      sector_info_t *sector_info,
-		      uint8_t *data)
+		      const sector_info_t *sector_info,
+		      const uint8_t *data)
 {
   int count;
 

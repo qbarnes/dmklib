@@ -784,7 +784,7 @@ void read_disk (disk_info_t *disk_info)
 	}
       for (head = 0; head < disk_info->head_count; head++)
 	{
-	  track_info = & disk_info->track_info [(cylinder != 0) * MAX_HEADS + head];
+	  track_info = & disk_info->track_info [track_info_cylinder * MAX_HEADS + head];
 	  read_track (disk_info, cylinder, head, track_info);
 	}
     }

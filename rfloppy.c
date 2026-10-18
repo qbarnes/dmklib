@@ -429,6 +429,10 @@ int try_track (int cylinder, int head,
   int density_present [2];
   id_info_t id_info [MAX_ID_READ];
 
+  /* until the IDs are read, assume they match the physical position */
+  track_info->log_cylinder = cylinder;
+  track_info->log_head = head;
+
   if (! seek (disk_info, cylinder))
     {
       fprintf (stderr, "error seeking to cylinder %d\n", cylinder);
@@ -552,7 +556,7 @@ int try_disk (disk_info_t *disk_info, int auto_flags)
 
 
 bool read_sector (disk_info_t *disk_info,
-		  int cylinder, int head, int sector,
+		  int log_cylinder, int head, int sector,
 		  track_info_t *track_info,
 		  uint8_t *buf)
 {
@@ -570,7 +574,7 @@ bool read_sector (disk_info_t *disk_info,
   cmd.flags = FD_RAW_INTR | FD_RAW_READ;
   cmd.cmd[i++] = FD_READ & mask;
   cmd.cmd[i++] = head ? 4 : 0;
-  cmd.cmd[i++] = cylinder; /* Cylinder value (to check with header) */
+  cmd.cmd[i++] = log_cylinder; /* Cylinder value (to check with header) */
   cmd.cmd[i++] = track_info->log_head;  /* Head value (to check with header) */
   cmd.cmd[i++] = sector;
   cmd.cmd[i++] = track_info->size_code; /* sector length */
@@ -635,7 +639,8 @@ void usage (void)
 bool dmk_image_seek_and_format (disk_info_t *disk_info,
 				track_info_t *track_info,
 				int cylinder,
-				int head)
+				int head,
+				int log_cylinder)
 {
   int sector_count = (track_info->max_sector - track_info->min_sector) + 1;
   sector_info_t *sector_info;
@@ -647,8 +652,8 @@ bool dmk_image_seek_and_format (disk_info_t *disk_info,
 
   for (i = 0; i < sector_count; i++)
     {
-      sector_info [i].cylinder   = cylinder;
-      sector_info [i].head       = head;
+      sector_info [i].cylinder   = log_cylinder;
+      sector_info [i].head       = track_info->log_head;
       sector_info [i].sector     = track_info->min_sector + i;
       sector_info [i].size_code  = track_info->size_code;
       sector_info [i].mode       = (track_info->density == DENSITY_FM) ? DMK_FM : DMK_MFM;
@@ -671,6 +676,7 @@ bool dmk_image_seek_and_format (disk_info_t *disk_info,
 void read_track (disk_info_t *disk_info,
 		 int cylinder,
 		 int head,
+		 int log_cylinder,
 		 track_info_t *track_info)
 {
   int retry_count;
@@ -681,7 +687,8 @@ void read_track (disk_info_t *disk_info,
 
   if (disk_info->image_type == DMK_IMAGE)
     {
-      if (! dmk_image_seek_and_format (disk_info, track_info, cylinder, head))
+      if (! dmk_image_seek_and_format (disk_info, track_info, cylinder, head,
+				       log_cylinder))
 	{
 	  fprintf (stderr, "error seeking or formatting cyl %d head %d in DMK image\n",
 		   cylinder, head);
@@ -711,7 +718,7 @@ void read_track (disk_info_t *disk_info,
       retry_count = disk_info->max_retry;
       status = 0;
       while ((! status) && (retry_count-- > 0))
-	status = read_sector (disk_info, cylinder, head, sector,
+	status = read_sector (disk_info, log_cylinder, head, sector,
 			      track_info, buf);
       if (verbose == 3)
 	{
@@ -741,8 +748,8 @@ void read_track (disk_info_t *disk_info,
 	     reads back as an error */
 	  if (! status)
 	    break;
-	  sector_info.cylinder  = cylinder;
-	  sector_info.head      = head;
+	  sector_info.cylinder  = log_cylinder;
+	  sector_info.head      = track_info->log_head;
 	  sector_info.sector    = sector;
 	  sector_info.size_code = track_info->size_code;
 	  sector_info.mode      = (track_info->density == DENSITY_FM) ? DMK_FM : DMK_MFM;
@@ -791,7 +798,11 @@ void read_disk (disk_info_t *disk_info)
       for (head = 0; head < disk_info->head_count; head++)
 	{
 	  track_info = & disk_info->track_info [track_info_cylinder * MAX_HEADS + head];
-	  read_track (disk_info, cylinder, head, track_info);
+	  /* the disk's cylinder numbering may be offset from the physical
+	     cylinders, as seen when the track info was detected */
+	  read_track (disk_info, cylinder, head,
+		      cylinder + (track_info->log_cylinder - track_info_cylinder),
+		      track_info);
 	}
     }
 
@@ -1063,6 +1074,7 @@ int main (int argc, char *argv[])
 	  memcpy (& disk_info.track_info [i],
 		  & disk_info.track_info [0],
 		  sizeof (track_info_t));
+	  disk_info.track_info [i].log_cylinder = i / MAX_HEADS;
 	  disk_info.track_info [i].log_head = (i & 1);
 	}
     }

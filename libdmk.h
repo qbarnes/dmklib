@@ -164,8 +164,9 @@ dmk_handle dmk_open_image (const char *fn,
  * room after the IDAM pointer table, or real_format set to
  * DMK_REAL_DISK (a pointer to a real drive, not an image), or if the
  * file is too short to hold every track the header describes.  Opening
- * for write also fails if the image is write protected.  Use
- * dmk_get_header () for the header fields not returned here.
+ * for write fails with EACCES if the image is write protected.  These
+ * failures print nothing.  Use dmk_get_header () for the header fields
+ * not returned here.
  */
 
 int dmk_close_image (dmk_handle h);

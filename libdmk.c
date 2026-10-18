@@ -33,8 +33,17 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <fcntl.h>
+
 #ifdef _WIN32
+#include <io.h>
 #include <windows.h>
+#else
+#include <unistd.h>
+#endif
+
+#ifndef O_BINARY
+#define O_BINARY 0
 #endif
 
 #include "dmk.h"
@@ -500,6 +509,82 @@ dmk_handle dmk_open_image (const char *fn,
 }
 
 
+/*
+ * Create a new image with the given 16 header bytes, which have already
+ * been validated.  With DMK_CREATE_EXCL, fail with EEXIST rather than
+ * replace an existing file.
+ */
+static dmk_handle create_image (const char *fn,
+				const uint8_t *header,
+				int flags)
+{
+  dmk_handle h;
+  int created = 0;  /* boolean, remove fn on failure */
+
+  h = calloc (1, sizeof (struct dmk_state));
+  if (! h)
+    goto fail;
+
+  if (flags & DMK_CREATE_EXCL)
+    {
+      int fd = open (fn, O_WRONLY | O_CREAT | O_EXCL | O_BINARY, 0666);
+      if (fd < 0)
+	goto fail;
+      created = 1;
+      h->f = fdopen (fd, "wb");
+      if (! h->f)
+	{
+	  close (fd);
+	  goto fail;
+	}
+    }
+  else
+    {
+      h->f = fopen (fn, "wb");
+      if (! h->f)
+	goto fail;
+    }
+
+  h->new_image = 1;
+  h->writable = 1;
+
+  memcpy (h->header, header, DMK_HEADER_LENGTH);
+  h->cylinders = header [1];
+  h->track_length = ((header [3] << 8) | header [2]) - 2 * DMK_MAX_SECTOR;
+  h->dd   = ! (header [4] & DMK_FLAG_SD_MASK);
+  h->ds   = ! (header [4] & DMK_FLAG_SS_MASK);
+  h->rx02 = !!(header [4] & DMK_FLAG_RX02_MASK);
+
+  h->track = calloc (h->cylinders * (h->ds + 1), sizeof (track_state_t));
+  if (! h->track)
+    goto fail;
+
+  /* 
+   * Make sure the first seek will do the right thing, by setting
+   * the current position to a non-existent track
+   */
+  h->cur_cylinder = -1;
+  h->cur_head = -1;
+
+  return (h);
+
+ fail:
+  if (h)
+    {
+      int saved_errno = errno;
+
+      free (h->track);
+      if (h->f)
+	fclose (h->f);
+      if (created)
+	remove (fn);
+      free (h);
+      errno = saved_errno;
+    }
+  return (NULL);
+}
+
+
 dmk_handle dmk_create_image (const char *fn,
 			     int ds,    /* boolean */
 			     int cylinders,
@@ -509,6 +594,7 @@ dmk_handle dmk_create_image (const char *fn,
 {
   dmk_handle h;
   long track_length;
+  uint8_t header [DMK_HEADER_LENGTH];
 
   /* validate before fopen() truncates the file */
   if ((cylinders < 1) || (cylinders > 255) || (rpm <= 0) || (rate <= 0))
@@ -537,58 +623,44 @@ dmk_handle dmk_create_image (const char *fn,
 	      track_length);
     }
 
-  h = calloc (1, sizeof (struct dmk_state));
-  if (! h)
-    goto fail;
+  memset (header, 0, sizeof (header));
+  header [0] = DMK_WRITE_ENABLE;
+  header [1] = cylinders;
+  header [2] = (track_length + 2 * DMK_MAX_SECTOR) & 0xff;
+  header [3] = (track_length + 2 * DMK_MAX_SECTOR) >> 8;
+  if (! ds)
+    header [4] |= DMK_FLAG_SS_MASK;
+  if (! dd)
+    header [4] |= DMK_FLAG_SD_MASK;
 
-  h->f = fopen (fn, "wb");
-  if (! h->f)
-    goto fail;
-
-  h->new_image = 1;
-  h->writable = 1;
-
-  h->ds = !! ds;
-  h->cylinders = cylinders;
-  h->dd = !! dd;
-  h->rpm = rpm;
-  h->rate = rate;
-  h->track_length = track_length;
-
-  h->header [0] = DMK_WRITE_ENABLE;
-  h->header [1] = h->cylinders;
-  h->header [2] = (h->track_length + 2 * DMK_MAX_SECTOR) & 0xff;
-  h->header [3] = (h->track_length + 2 * DMK_MAX_SECTOR) >> 8;
-  if (! h->ds)
-    h->header [4] |= DMK_FLAG_SS_MASK;
-  if (! h->dd)
-    h->header [4] |= DMK_FLAG_SD_MASK;
-
-  h->track = calloc (h->cylinders * (h->ds + 1), sizeof (track_state_t));
-  if (! h->track)
-    goto fail;
-
-  /* 
-   * Make sure the first seek will do the right thing, by setting
-   * the current position to a non-existent track
-   */
-  h->cur_cylinder = -1;
-  h->cur_head = -1;
-
-  return (h);
-
- fail:
+  h = create_image (fn, header, 0);
   if (h)
     {
-      int saved_errno = errno;
-
-      free (h->track);
-      if (h->f)
-	fclose (h->f);
-      free (h);
-      errno = saved_errno;
+      h->rpm = rpm;
+      h->rate = rate;
     }
-  return (NULL);
+  return (h);
+}
+
+
+dmk_handle dmk_create_image_from_header (const char *fn,
+					 const dmk_header_t *hdr,
+					 int flags)
+{
+  uint8_t header [DMK_HEADER_LENGTH];
+
+  /* validate before the file is created or truncated */
+  if ((flags & ~ DMK_CREATE_EXCL) ||
+      (hdr->track_count == 0) ||
+      (hdr->track_length <= 2 * DMK_MAX_SECTOR) ||
+      (hdr->real_format == DMK_REAL_DISK))
+    {
+      errno = EINVAL;
+      return (NULL);
+    }
+
+  dmk_header_encode (hdr, header);
+  return (create_image (fn, header, flags));
 }
 
 

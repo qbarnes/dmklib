@@ -412,6 +412,13 @@ dmk_handle dmk_open_image (char *fn,
   h->ds   = ! (dmk_header [4] & DMK_FLAG_SS_MASK);
   h->rx02 = !!(dmk_header [4] & DMK_FLAG_RX02_MASK);
 
+  if ((h->cylinders == 0) || (h->track_length <= 0))
+    {
+      fprintf (stderr, "invalid DMK header\n");
+      errno = EINVAL;
+      goto fail;
+    }
+
   *ds = h->ds;
   *cylinders = h->cylinders;
   *dd = h->dd;

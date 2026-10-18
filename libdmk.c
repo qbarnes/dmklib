@@ -450,7 +450,7 @@ dmk_handle dmk_open_image (const char *fn,
   /* if write requested, make sure the file isn't locked */
   if (write_enable && dmk_header [0])
     {
-      diag ("write-locked DMK file\n");
+      errno = EACCES;
       goto fail;
     }
 
@@ -464,7 +464,6 @@ dmk_handle dmk_open_image (const char *fn,
 
   if ((h->cylinders == 0) || (h->track_length <= 0))
     {
-      diag ("invalid DMK header\n");
       errno = EINVAL;
       goto fail;
     }
@@ -473,7 +472,6 @@ dmk_handle dmk_open_image (const char *fn,
   if (((uint32_t) dmk_header [15] << 24 | dmk_header [14] << 16 |
        dmk_header [13] << 8 | dmk_header [12]) == DMK_REAL_DISK)
     {
-      diag ("DMK file refers to a real disk\n");
       errno = EINVAL;
       goto fail;
     }

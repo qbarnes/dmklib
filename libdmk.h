@@ -25,6 +25,7 @@
 #define DMKLIB_LIBDMK_H
 
 #include <stdint.h>
+#include <stdio.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -58,6 +59,14 @@ typedef struct
 
 
 typedef struct dmk_state *dmk_handle;
+
+
+/*
+ * The library prints diagnostics to stderr by default.  Pass another
+ * stream to redirect them, or NULL to suppress them.  The setting is
+ * global to the library.
+ */
+void dmk_set_diagnostic_stream (FILE *f);
 
 
 dmk_handle dmk_create_image (char *fn,

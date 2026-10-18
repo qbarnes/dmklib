@@ -27,6 +27,7 @@
 
 
 #include <errno.h>
+#include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -183,6 +184,32 @@ struct dmk_state
   int read_id_index;
 };
 
+
+
+static FILE *diag_stream;
+static int diag_stream_set;  /* boolean, if false use stderr */
+
+
+void dmk_set_diagnostic_stream (FILE *f)
+{
+  diag_stream = f;
+  diag_stream_set = 1;
+}
+
+
+static void diag (const char *fmt, ...)
+{
+  FILE *f = diag_stream_set ? diag_stream : stderr;
+  int saved_errno = errno;
+  va_list ap;
+
+  if (! f)
+    return;
+  va_start (ap, fmt);
+  vfprintf (f, fmt, ap);
+  va_end (ap);
+  errno = saved_errno;
+}
 
 
 static void init_crc (dmk_handle h)
@@ -393,14 +420,14 @@ dmk_handle dmk_open_image (char *fn,
 
   if (1 != fread (dmk_header, sizeof (dmk_header), 1, h->f))
     {
-      fprintf (stderr, "error reading DMK header\n");
+      diag ("error reading DMK header\n");
       goto fail;
     }
 
   /* if write requested, make sure the file isn't locked */
   if (write_enable && dmk_header [0])
     {
-      fprintf (stderr, "write-locked DMK file\n");
+      diag ("write-locked DMK file\n");
       goto fail;
     }
 
@@ -414,7 +441,7 @@ dmk_handle dmk_open_image (char *fn,
 
   if ((h->cylinders == 0) || (h->track_length <= 0))
     {
-      fprintf (stderr, "invalid DMK header\n");
+      diag ("invalid DMK header\n");
       errno = EINVAL;
       goto fail;
     }
@@ -423,7 +450,7 @@ dmk_handle dmk_open_image (char *fn,
   if (((uint32_t) dmk_header [15] << 24 | dmk_header [14] << 16 |
        dmk_header [13] << 8 | dmk_header [12]) == DMK_REAL_DISK)
     {
-      fprintf (stderr, "DMK file refers to a real disk\n");
+      diag ("DMK file refers to a real disk\n");
       errno = EINVAL;
       goto fail;
     }
@@ -499,8 +526,8 @@ dmk_handle dmk_create_image (char *fn,
 	  return (NULL);
 	}
       if (track_length > 0x2900)
-	fprintf (stderr, "warning: track length %ld exceeds maximum DMK spec\n",
-		 track_length);
+	diag ("warning: track length %ld exceeds maximum DMK spec\n",
+	      track_length);
     }
 
   h = calloc (1, sizeof (struct dmk_state));
@@ -588,7 +615,7 @@ int dmk_close_image (dmk_handle h)
       /* note that we should still be positioned to the start of the file */
       if (1 != fwrite (dmk_header, sizeof (dmk_header), 1, h->f))
 	{
-	  fprintf (stderr, "error writing DMK header\n");
+	  diag ("error writing DMK header\n");
 	  ok = 0;
 	  goto done;
 	}
@@ -603,7 +630,7 @@ int dmk_close_image (dmk_handle h)
 	  {
 	    if (! dmk_image_file_seek_track (h, cylinder, head))
 	      {
-		fprintf (stderr, "error seeking image file\n");
+		diag ("error seeking image file\n");
 		ok = 0;
 		goto done;
 	      }
@@ -622,14 +649,14 @@ int dmk_close_image (dmk_handle h)
 		b = idam_ptr & 0xff;
 		if (1 != fwrite (& b, 1, 1, h->f))
 		  {
-		    fprintf (stderr, "error writing IDAM offset low to image file\n");
+		    diag ("error writing IDAM offset low to image file\n");
 		    ok = 0;
 		    goto done;
 		  }
 		b = idam_ptr >> 8;
 		if (1 != fwrite (& b, 1, 1, h->f))
 		  {
-		    fprintf (stderr, "error writing IDAM offset high to image file\n");
+		    diag ("error writing IDAM offset high to image file\n");
 		    ok = 0;
 		    goto done;
 		  }
@@ -639,9 +666,9 @@ int dmk_close_image (dmk_handle h)
 	    if (1 != fwrite (track->buf, h->track_length, 1, h->f))
 	      {
 		if (ferror (h->f))
-		  fprintf (stderr, "error writing track data to image file\n");
+		  diag ("error writing track data to image file\n");
 		else
-		  fprintf (stderr, "fwrite failed writing track data to image file\n");
+		  diag ("fwrite failed writing track data to image file\n");
 		ok = 0;
 		goto done;
 	      }
@@ -700,12 +727,12 @@ int dmk_seek (dmk_handle h,
 	  /* existing image: read the track from the image file */
 	  if (! dmk_image_file_seek_track (h, cylinder, head))
 	    {
-	      fprintf (stderr, "error seeking image file\n");
+	      diag ("error seeking image file\n");
 	      goto fail;
 	    }
 	  if (1 != fread (idam_table, sizeof (idam_table), 1, h->f))
 	    {
-	      fprintf (stderr, "error reading image file\n");
+	      diag ("error reading image file\n");
 	      goto fail;
 	    }
 	  for (i = 0; i < DMK_MAX_SECTOR; i++)
@@ -721,7 +748,7 @@ int dmk_seek (dmk_handle h,
 		break;
 	      if (idam_ptr < (2 * DMK_MAX_SECTOR))
 		{
-		  fprintf (stderr, "IDAM pointer out of range\n");
+		  diag ("IDAM pointer out of range\n");
 		  goto fail;
 		}
 	      idam_ptr -= 2 * DMK_MAX_SECTOR;
@@ -736,7 +763,7 @@ int dmk_seek (dmk_handle h,
 	    }
 	  if (1 != fread (new_track->buf, h->track_length, 1, h->f))
 	    {
-	      fprintf (stderr, "error reading image file\n");
+	      diag ("error reading image file\n");
 	      goto fail;
 	    }
 	}
@@ -1090,7 +1117,7 @@ static int find_address_mark (dmk_handle h,
   /* make sure we have a physical position */
   if (h->cur_cylinder < 0)
     {
-      fprintf (stderr, "find_address_mark: no physical location\n");
+      diag ("find_address_mark: no physical location\n");
       return (0);
     }
 
@@ -1104,7 +1131,7 @@ static int find_address_mark (dmk_handle h,
       /* is there room in the track for a complete address mark? */
       if ((h->p + 7) > h->track_length)
 	{
-	  fprintf (stderr, "find_address_mark: address mark too close to end of track\n");
+	  diag ("find_address_mark: address mark too close to end of track\n");
 	  continue;
 	}
 
@@ -1118,8 +1145,8 @@ static int find_address_mark (dmk_handle h,
       mark = read_buf_byte (h);
       if (mark != fmt->id_address_mark [1].data)
 	{
-	  fprintf (stderr, "find_address_mark: address mark byte is %02x, should be %02x\n",
-		   mark, fmt->id_address_mark [1].data);
+	  diag ("find_address_mark: address mark byte is %02x, should be %02x\n",
+		mark, fmt->id_address_mark [1].data);
 	  continue;
 	}
       sector_info.cylinder  = read_buf_byte (h);
@@ -1128,7 +1155,7 @@ static int find_address_mark (dmk_handle h,
       sector_info.size_code = read_buf_byte (h);
       if (! check_crc (h) || h->overrun)
 	{
-	  fprintf (stderr, "find_address_mark: address mark CRC bad\n");
+	  diag ("find_address_mark: address mark CRC bad\n");
 	  continue;
 	}
 
@@ -1141,7 +1168,7 @@ static int find_address_mark (dmk_handle h,
       return (1);
     }
 
-  fprintf (stderr, "find_address_mark: no address mark matches\n");
+  diag ("find_address_mark: no address mark matches\n");
   return (0);
 }
 
@@ -1162,7 +1189,7 @@ int dmk_read_id_with_crcs (dmk_handle h,
   /* make sure we have a physical position */
   if (h->cur_cylinder < 0)
     {
-      fprintf (stderr, "dmk_read_id: no physical location\n");
+      diag ("dmk_read_id: no physical location\n");
       return (0);
     }
 
@@ -1180,7 +1207,7 @@ int dmk_read_id_with_crcs (dmk_handle h,
   /* is there room in the track for a complete address mark? */
   if ((h->p + 7) > h->track_length)
     {
-      fprintf (stderr, "dmk_read_id: address mark too close to end of track\n");
+      diag ("dmk_read_id: address mark too close to end of track\n");
       return (0);
     }
 
@@ -1194,8 +1221,8 @@ int dmk_read_id_with_crcs (dmk_handle h,
   mark = read_buf_byte (h);
   if (mark != fmt->id_address_mark [1].data)
     {
-      fprintf (stderr, "dmk_read_id: address mark byte is %02x, should be %02x\n",
-	       mark, fmt->id_address_mark [1].data);
+      diag ("dmk_read_id: address mark byte is %02x, should be %02x\n",
+	    mark, fmt->id_address_mark [1].data);
       return (0);
     }
 
@@ -1209,13 +1236,13 @@ int dmk_read_id_with_crcs (dmk_handle h,
 
   if (! check_crc (h) || h->overrun)
     {
-      fprintf (stderr, "dmk_read_id: address mark CRC bad\n");
+      diag ("dmk_read_id: address mark CRC bad\n");
       static const char *mode_name [MAX_SECTOR_MODE] =
 	{ "FM", "MFM", "RX02", "M2FM" };
-      fprintf (stderr, "mode: %s\n", mode_name [sector_info->mode]);
-      fprintf (stderr, "cylinder %d, head %d, sector %d, size code %d\n",
-	       sector_info->cylinder, sector_info->head,
-	       sector_info->sector, sector_info->size_code);
+      diag ("mode: %s\n", mode_name [sector_info->mode]);
+      diag ("cylinder %d, head %d, sector %d, size code %d\n",
+	    sector_info->cylinder, sector_info->head,
+	    sector_info->sector, sector_info->size_code);
       ret = -1;
     }
 
@@ -1274,7 +1301,7 @@ int dmk_write_sector (dmk_handle h,
   /* find address mark */
   if (! find_address_mark (h, sector_info))
     {
-      fprintf (stderr, "dmk_write_sector: can't find address mark\n");
+      diag ("dmk_write_sector: can't find address mark\n");
       return (0);
     }
 
@@ -1286,7 +1313,7 @@ int dmk_write_sector (dmk_handle h,
   
   if (! write_data_field (h, sector_info, 0, data))
     {
-      fprintf (stderr, "dmk_write_sector: can't write data field\n");
+      diag ("dmk_write_sector: can't write data field\n");
       return (0);
     }
 

@@ -842,12 +842,10 @@ static int compute_gap (dmk_handle h,
 		    fmt->index_mark [0].count +
 		    fmt->index_mark [1].count);
 
-  /* address_field_length already includes the ID address mark, and
-     dmk_format_track() writes id_gap [1] twice, once itself and once
-     via write_data_field() */
+  /* address_field_length already includes the ID address mark */
   sector_overhead = (fmt->address_field_length +
 		     fmt->id_gap [0].count +
-		     2 * fmt->id_gap [1].count +
+		     fmt->id_gap [1].count +
 		     fmt->data_field_overhead +
 		     fmt->post_data_gap [0].count +
 		     fmt->post_data_gap [1].count);
@@ -1021,9 +1019,9 @@ int dmk_format_track (dmk_handle h,
 
       if (sector_info [sector].write_data)
 	{
+	  /* write_data_field () writes id_gap [1] */
 	  write_buf_count_data (h, & fmt->id_gap [0]);
-	  write_buf_count_data (h, & fmt->id_gap [1]);
-	  
+
 	  if (! write_data_field (h, & sector_info [sector], 1,
 				  & sector_info [sector].data_value))
 	    {

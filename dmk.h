@@ -27,17 +27,8 @@
 #include <stdint.h>
 
 
+/* see dmk_header_t in libdmk.h for the layout */
 #define DMK_HEADER_LENGTH 16
-
-typedef struct
-{
-  uint8_t write_protect;  /* 0xff for protected, 0x00 for unprotected */  
-  uint8_t track_count;
-  uint16_t track_length;  /* little endian */
-  uint8_t flags;
-  uint8_t fill [7];
-  uint32_t real;          /* little endian */
-} dmk_disk_header_t;
 
 
 #define DMK_WRITE_ENABLE  0x00

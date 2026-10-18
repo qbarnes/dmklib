@@ -40,7 +40,12 @@ DISTNAME = $(PACKAGE)-$(VERSION)
 DATE := $(shell date +%Y.%m.%d)
 SNAPNAME = $(PACKAGE)-$(DATE)
 
-TARGETS = libdmk.o rfloppy dmkformat dmk2raw dumpids
+TARGETS = libdmk.o dmkformat dmk2raw
+
+# rfloppy and dumpids use the Linux floppy driver
+ifneq ($(findstring linux,$(shell $(CC) -dumpmachine)),)
+TARGETS += rfloppy dumpids
+endif
 
 HEADERS = libdmk.h dmk.h
 

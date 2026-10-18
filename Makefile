@@ -22,8 +22,10 @@
 # options
 # -----------------------------------------------------------------------------
 
-CFLAGS = -g -Wall $(DEFINES)
-LDFLAGS = -g
+# Defaults only; CFLAGS and LDFLAGS from the environment or the command
+# line replace them.  DEFINES is always added, through CPPFLAGS.
+CFLAGS ?= -g -Wall
+LDFLAGS ?= -g
 
 
 # -----------------------------------------------------------------------------
@@ -45,6 +47,7 @@ HEADERS = libdmk.h dmk.h
 SOURCES = libdmk.c rfloppy.c dmkformat.c dmk2raw.c dumpids.c
 
 DEFINES = -DDMKLIB_VERSION=$(VERSION)
+override CPPFLAGS += $(DEFINES)
 
 OTHERSRC = Makefile
 MISC = COPYING README
@@ -96,7 +99,7 @@ dumpids: dumpids.o
 # -----------------------------------------------------------------------------
 
 %.d: %.c
-	$(CC) -M -MG $(CFLAGS) $< | sed -e 's@ /[^ ]*@@g' -e 's@^\(.*\)\.o:@\1.d \1.o:@' > $@
+	$(CC) -M -MG $(CPPFLAGS) $(CFLAGS) $< | sed -e 's@ /[^ ]*@@g' -e 's@^\(.*\)\.o:@\1.d \1.o:@' > $@
 
 include $(DEPENDS)
 

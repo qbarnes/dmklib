@@ -152,6 +152,8 @@ struct dmk_state
 {
   FILE *f;
 
+  uint8_t header [DMK_HEADER_LENGTH];  /* as read, or to be written */
+
   int new_image;  /* boolean */
   int writable;   /* boolean */
 
@@ -408,17 +410,18 @@ dmk_handle dmk_open_image (const char *fn,
 			   int *dd)
 {
   dmk_handle h;
-  uint8_t dmk_header [DMK_HEADER_LENGTH];
+  uint8_t *dmk_header;
 
   h = calloc (1, sizeof (struct dmk_state));
   if (! h)
     goto fail;
+  dmk_header = h->header;
 
   h->f = fopen (fn, write_enable ? "r+b" : "rb");
   if (! h->f)
     goto fail;
 
-  if (1 != fread (dmk_header, sizeof (dmk_header), 1, h->f))
+  if (1 != fread (dmk_header, DMK_HEADER_LENGTH, 1, h->f))
     {
       diag ("error reading DMK header\n");
       if (! ferror (h->f))
@@ -550,6 +553,15 @@ dmk_handle dmk_create_image (const char *fn,
   h->rate = rate;
   h->track_length = track_length;
 
+  h->header [0] = DMK_WRITE_ENABLE;
+  h->header [1] = h->cylinders;
+  h->header [2] = (h->track_length + 2 * DMK_MAX_SECTOR) & 0xff;
+  h->header [3] = (h->track_length + 2 * DMK_MAX_SECTOR) >> 8;
+  if (! h->ds)
+    h->header [4] |= DMK_FLAG_SS_MASK;
+  if (! h->dd)
+    h->header [4] |= DMK_FLAG_SD_MASK;
+
   h->track = calloc (h->cylinders * (h->ds + 1), sizeof (track_state_t));
   if (! h->track)
     goto fail;
@@ -578,6 +590,41 @@ dmk_handle dmk_create_image (const char *fn,
 }
 
 
+void dmk_header_decode (const uint8_t *raw, dmk_header_t *hdr)
+{
+  hdr->write_protect = raw [0];
+  hdr->track_count   = raw [1];
+  hdr->track_length  = raw [2] | raw [3] << 8;
+  hdr->flags         = raw [4];
+  hdr->quirks        = raw [5];
+  memcpy (hdr->reserved, & raw [6], sizeof (hdr->reserved));
+  hdr->real_format   = ((uint32_t) raw [15] << 24 | (uint32_t) raw [14] << 16 |
+			(uint32_t) raw [13] << 8 | raw [12]);
+}
+
+
+void dmk_header_encode (const dmk_header_t *hdr, uint8_t *raw)
+{
+  raw [0]  = hdr->write_protect;
+  raw [1]  = hdr->track_count;
+  raw [2]  = hdr->track_length & 0xff;
+  raw [3]  = hdr->track_length >> 8;
+  raw [4]  = hdr->flags;
+  raw [5]  = hdr->quirks;
+  memcpy (& raw [6], hdr->reserved, sizeof (hdr->reserved));
+  raw [12] = hdr->real_format & 0xff;
+  raw [13] = (hdr->real_format >> 8) & 0xff;
+  raw [14] = (hdr->real_format >> 16) & 0xff;
+  raw [15] = hdr->real_format >> 24;
+}
+
+
+void dmk_get_header (dmk_handle h, dmk_header_t *hdr)
+{
+  dmk_header_decode (h->header, hdr);
+}
+
+
 static int dmk_image_file_seek_track (dmk_handle h, int cylinder, int head)
 {
   long pos = DMK_HEADER_LENGTH + (((h->ds + 1) * cylinder + head) *
@@ -599,23 +646,8 @@ int dmk_close_image (dmk_handle h)
 
   if (h->new_image)
     {
-      uint8_t dmk_header [DMK_HEADER_LENGTH];
-
-      memset (dmk_header, 0, DMK_HEADER_LENGTH);
-      dmk_header [0] = 0x00;  /* unprotected */
-      dmk_header [1] = h->cylinders;
-      dmk_header [2] = (h->track_length + 2 * DMK_MAX_SECTOR) & 0xff;
-      dmk_header [3] = (h->track_length + 2 * DMK_MAX_SECTOR) >> 8;
-      dmk_header [4] = 0x00;  /* flags */
-      if (! h->ds)
-	dmk_header [4] |= DMK_FLAG_SS_MASK;
-      if (h->rx02)
-	dmk_header [4] |= DMK_FLAG_RX02_MASK;
-      if (! h->dd)
-	dmk_header [4] |= DMK_FLAG_SD_MASK;
-    
-      /* note that we should still be positioned to the start of the file */
-      if (1 != fwrite (dmk_header, sizeof (dmk_header), 1, h->f))
+      if ((0 != fseek (h->f, 0, SEEK_SET)) ||
+	  (1 != fwrite (h->header, DMK_HEADER_LENGTH, 1, h->f)))
 	{
 	  diag ("error writing DMK header\n");
 	  ok = 0;

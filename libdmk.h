@@ -62,6 +62,33 @@ typedef struct dmk_state *dmk_handle;
 
 
 /*
+ * The 16-byte header at the start of a DMK file.  On disk the
+ * multi-byte fields are little-endian, so use dmk_header_decode () and
+ * dmk_header_encode () rather than reading or writing the structure
+ * directly.  Both conversions are lossless.
+ */
+typedef struct
+{
+  uint8_t  write_protect;  /* byte 0, 0xff protected, 0x00 not */
+  uint8_t  track_count;    /* byte 1, cylinders */
+  uint16_t track_length;   /* bytes 2-3, including the 128-byte IDAM
+			      pointer table */
+  uint8_t  flags;          /* byte 4, DMK_FLAG_*_MASK in dmk.h */
+  uint8_t  quirks;         /* byte 5, DMK_QUIRK_* in dmk.h */
+  uint8_t  reserved [6];   /* bytes 6-11 */
+  uint32_t real_format;    /* bytes 12-15, DMK_REAL_DISK for a
+			      real-disk pointer file */
+} dmk_header_t;
+
+/* raw points to the 16 header bytes */
+void dmk_header_decode (const uint8_t *raw, dmk_header_t *hdr);
+void dmk_header_encode (const dmk_header_t *hdr, uint8_t *raw);
+
+/* For an image from dmk_create_image (), the header it will write. */
+void dmk_get_header (dmk_handle h, dmk_header_t *hdr);
+
+
+/*
  * The library prints diagnostics to stderr by default.  Pass another
  * stream to redirect them, or NULL to suppress them.  The setting is
  * global to the library.

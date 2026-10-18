@@ -730,11 +730,17 @@ void read_track (disk_info_t *disk_info,
 #if 0
 	  exit (2);
 #endif
+	  /* buf holds stale or uninitialized data, so don't write it */
+	  memset (buf, 0xe5, 128 << track_info->size_code);
 	}
 
       switch (disk_info->image_type)
 	{
 	case DMK_IMAGE:
+	  /* leave the sector formatted without a data field, so it
+	     reads back as an error */
+	  if (! status)
+	    break;
 	  sector_info.cylinder  = cylinder;
 	  sector_info.head      = head;
 	  sector_info.sector    = sector;

@@ -47,7 +47,8 @@ HEADERS = libdmk.h dmk.h
 SOURCES = libdmk.c rfloppy.c dmkformat.c dmk2raw.c dumpids.c
 
 DEFINES = -DDMKLIB_VERSION=$(VERSION)
-override CPPFLAGS += $(DEFINES)
+DEPFLAGS = -MMD -MP
+override CPPFLAGS += $(DEFINES) $(DEPFLAGS)
 
 OTHERSRC = Makefile
 MISC = COPYING README
@@ -95,13 +96,10 @@ dumpids: dumpids.o
 
 
 # -----------------------------------------------------------------------------
-# Automatically generate dependencies.
+# Dependencies, written by the compiler as a side effect of $(DEPFLAGS).
 # -----------------------------------------------------------------------------
 
-%.d: %.c
-	$(CC) -M -MG $(CPPFLAGS) $(CFLAGS) $< | sed -e 's@ /[^ ]*@@g' -e 's@^\(.*\)\.o:@\1.d \1.o:@' > $@
-
-include $(DEPENDS)
+-include $(DEPENDS)
 
 
 .PHONY: all dist snap clean

@@ -649,6 +649,7 @@ int dmk_seek (dmk_handle h,
 	      int head)
 {
   track_state_t *new_track;
+  uint8_t idam_table [2 * DMK_MAX_SECTOR];
   int i;
 
   if ((cylinder < 0) || (cylinder >= h->cylinders))
@@ -686,20 +687,22 @@ int dmk_seek (dmk_handle h,
 	      fprintf (stderr, "error seeking image file\n");
 	      goto fail;
 	    }
+	  if (1 != fread (idam_table, sizeof (idam_table), 1, h->f))
+	    {
+	      fprintf (stderr, "error reading image file\n");
+	      goto fail;
+	    }
 	  for (i = 0; i < DMK_MAX_SECTOR; i++)
 	    {
-	      uint8_t d [2];
 	      uint16_t idam_ptr, idam_flags;
-	      if (1 != fread (d, 2, 1, h->f))
-		{
-		  fprintf (stderr, "error reading image file\n");
-		  goto fail;
-		}
-	      idam_ptr = d [1] << 8 | d [0];
+	      idam_ptr = idam_table [2 * i + 1] << 8 | idam_table [2 * i];
+	      /* like dmk2cw, 0 or 0xffff ends the table */
+	      if ((idam_ptr == 0) || (idam_ptr == 0xffff))
+		break;
 	      idam_flags = idam_ptr & DMK_IDAM_POINTER_FLAGS_MASK;
 	      idam_ptr &= ~ DMK_IDAM_POINTER_FLAGS_MASK;
 	      if (idam_ptr == 0)
-		continue;
+		break;
 	      if (idam_ptr < (2 * DMK_MAX_SECTOR))
 		{
 		  fprintf (stderr, "IDAM pointer out of range\n");

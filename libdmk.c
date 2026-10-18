@@ -438,6 +438,14 @@ dmk_handle dmk_open_image (const char *fn,
       goto fail;
     }
 
+  /* the write protect byte is either 0x00 or 0xff */
+  if ((dmk_header [0] != DMK_WRITE_ENABLE) &&
+      (dmk_header [0] != DMK_WRITE_PROTECT))
+    {
+      errno = EINVAL;
+      goto fail;
+    }
+
   /* if write requested, make sure the file isn't locked */
   if (write_enable && dmk_header [0])
     {

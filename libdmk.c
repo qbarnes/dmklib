@@ -635,6 +635,18 @@ static int dmk_image_file_seek_track (dmk_handle h, int cylinder, int head)
 }
 
 
+/* Give a track of a new image an empty IDAM pointer table and data
+   filled with FFs.  Returns 0 if out of memory. */
+static int alloc_blank_track (dmk_handle h, track_state_t *track)
+{
+  track->buf = malloc (h->track_length);
+  if (! track->buf)
+    return (0);
+  memset (track->buf, 0xff, h->track_length);
+  return (1);
+}
+
+
 /* Fill in idam_pointer [] and mfm_sector [] from idam_table [].
    Returns 0 if a pointer falls inside the table, leaving the slots
    from there on empty. */
@@ -717,7 +729,16 @@ int dmk_close_image (dmk_handle h)
       {
 	track = & h->track [(h->ds + 1) * cylinder + head];
 
-	if (track->buf && track->dirty)
+	/* a new image gets every track, so the file is as long as the
+	   header says */
+	if (h->new_image && ! track->buf && ! alloc_blank_track (h, track))
+	  {
+	    diag ("out of memory writing image file\n");
+	    ok = 0;
+	    goto done;
+	  }
+
+	if (track->buf && (track->dirty || h->new_image))
 	  {
 	    if (! dmk_image_file_seek_track (h, cylinder, head))
 	      {
@@ -765,7 +786,6 @@ int dmk_seek (dmk_handle h,
 	      int head)
 {
   track_state_t *new_track;
-  int i;
 
   if ((cylinder < 0) || (cylinder >= h->cylinders))
     return (0);
@@ -785,18 +805,17 @@ int dmk_seek (dmk_handle h,
 
   if (! new_track->buf)
     {
-      new_track->buf = calloc (1, h->track_length);
-      if (! new_track->buf)
-	return (0);
       if (h->new_image)
 	{
-	  /* virgin image: fill the new track with FFs */
-	  for (i = 0; i < h->track_length; i++)
-	    new_track->buf [i] = 0xff;
+	  if (! alloc_blank_track (h, new_track))
+	    return (0);
 	}
       else
 	{
 	  /* existing image: read the track from the image file */
+	  new_track->buf = calloc (1, h->track_length);
+	  if (! new_track->buf)
+	    return (0);
 	  if (! dmk_image_file_seek_track (h, cylinder, head))
 	    {
 	      diag ("error seeking image file\n");

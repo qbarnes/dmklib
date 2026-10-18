@@ -102,6 +102,9 @@ int dmk_format_track (dmk_handle h,
 		      int sector_count,
 		      sector_info_t *sector_info);
 
+/* dmk_format_track () and dmk_write_sector () don't support DMK_RX02
+   yet, and return 0 for it. */
+
 
 int dmk_read_id_with_crcs (dmk_handle h,
 			   sector_info_t *sector_info,

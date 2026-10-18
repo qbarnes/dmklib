@@ -120,6 +120,23 @@ dmk_handle dmk_create_image (const char *fn,
  */
 
 
+#define DMK_CREATE_EXCL 0x01  /* fail with EEXIST if fn exists */
+
+/*
+ * Create an image whose header is exactly hdr, including the write
+ * protect, quirks, reserved, and real_format bytes, for copying an
+ * image.  flags is 0 or DMK_CREATE_EXCL.
+ *
+ * Returns NULL with errno set to EINVAL if flags is unknown,
+ * track_count is 0, track_length leaves no room after the IDAM pointer
+ * table, or real_format is DMK_REAL_DISK, which are checked before fn
+ * is created or truncated.  Nothing is printed.
+ */
+dmk_handle dmk_create_image_from_header (const char *fn,
+					 const dmk_header_t *hdr,
+					 int flags);
+
+
 dmk_handle dmk_open_image (const char *fn,
 			   int write_enable,
 			   int *ds,

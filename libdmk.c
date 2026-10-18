@@ -144,7 +144,9 @@ typedef struct
   int dirty;     /* boolean */
   uint8_t  mfm_sector   [DMK_MAX_SECTOR];  /* sector_mode_t of each ID */
   uint16_t idam_pointer [DMK_MAX_SECTOR];
-  uint8_t  idam_rsv     [DMK_MAX_SECTOR];  /* boolean, preserves bit 14 */
+  uint8_t  idam_table   [2 * DMK_MAX_SECTOR];  /* as stored in the file */
+  int idam_table_valid;  /* boolean, false once idam_pointer [] and
+			    mfm_sector [] are rebuilt by formatting */
   uint8_t *buf;
 } track_state_t;
 
@@ -633,13 +635,68 @@ static int dmk_image_file_seek_track (dmk_handle h, int cylinder, int head)
 }
 
 
+/* Fill in idam_pointer [] and mfm_sector [] from idam_table [].
+   Returns 0 if a pointer falls inside the table, leaving the slots
+   from there on empty. */
+static int decode_idam_table (dmk_handle h, track_state_t *track)
+{
+  int i;
+
+  memset (track->idam_pointer, 0, sizeof (track->idam_pointer));
+  memset (track->mfm_sector, 0, sizeof (track->mfm_sector));
+  for (i = 0; i < DMK_MAX_SECTOR; i++)
+    {
+      uint16_t idam_ptr, idam_flags;
+      idam_ptr = track->idam_table [2 * i + 1] << 8 | track->idam_table [2 * i];
+      /* like dmk2cw, 0 or 0xffff ends the table */
+      if ((idam_ptr == 0) || (idam_ptr == 0xffff))
+	break;
+      idam_flags = idam_ptr & DMK_IDAM_POINTER_FLAGS_MASK;
+      idam_ptr &= ~ DMK_IDAM_POINTER_FLAGS_MASK;
+      if (idam_ptr == 0)
+	break;
+      if (idam_ptr < (2 * DMK_MAX_SECTOR))
+	return (0);
+      idam_ptr -= 2 * DMK_MAX_SECTOR;
+      if (h->rx02)
+	track->mfm_sector [i] = DMK_RX02;
+      else if (idam_flags & DMK_IDAM_POINTER_MFM_MASK)
+	track->mfm_sector [i] = DMK_MFM;
+      else
+	track->mfm_sector [i] = DMK_FM;
+      track->idam_pointer [i] = idam_ptr;
+    }
+  return (1);
+}
+
+
+/* Rebuild idam_table [] from idam_pointer [] and mfm_sector []. */
+static void encode_idam_table (track_state_t *track)
+{
+  int sector;
+
+  for (sector = 0; sector < DMK_MAX_SECTOR; sector++)
+    {
+      int idam_ptr = track->idam_pointer [sector];
+      if (idam_ptr)
+	{
+	  idam_ptr += 2 * DMK_MAX_SECTOR;
+	  if (track->mfm_sector [sector] == DMK_MFM)
+	    idam_ptr |= DMK_IDAM_POINTER_MFM_MASK;
+	}
+      track->idam_table [2 * sector]     = idam_ptr & 0xff;
+      track->idam_table [2 * sector + 1] = idam_ptr >> 8;
+    }
+  track->idam_table_valid = 1;
+}
+
+
 int dmk_close_image (dmk_handle h)
 {
-  int cylinder, head, sector;
+  int cylinder, head;
   int i;
   int ok = 1;
   track_state_t *track;
-  uint8_t b;
 
   if (! h->writable)
     goto done;
@@ -669,31 +726,13 @@ int dmk_close_image (dmk_handle h)
 		goto done;
 	      }
 	    /* write IDAM offsets */
-	    for (sector = 0; sector < DMK_MAX_SECTOR; sector++)
+	    if (! track->idam_table_valid)
+	      encode_idam_table (track);
+	    if (1 != fwrite (track->idam_table, sizeof (track->idam_table), 1, h->f))
 	      {
-		int idam_ptr = track->idam_pointer [sector];
-		if (idam_ptr)
-		  {
-		    idam_ptr += 2 * DMK_MAX_SECTOR;
-		    if (track->mfm_sector [sector] == DMK_MFM)
-		      idam_ptr |= DMK_IDAM_POINTER_MFM_MASK;
-		    if (track->idam_rsv [sector])
-		      idam_ptr |= DMK_IDAM_POINTER_RSV_MASK;
-		  }
-		b = idam_ptr & 0xff;
-		if (1 != fwrite (& b, 1, 1, h->f))
-		  {
-		    diag ("error writing IDAM offset low to image file\n");
-		    ok = 0;
-		    goto done;
-		  }
-		b = idam_ptr >> 8;
-		if (1 != fwrite (& b, 1, 1, h->f))
-		  {
-		    diag ("error writing IDAM offset high to image file\n");
-		    ok = 0;
-		    goto done;
-		  }
+		diag ("error writing IDAM offsets to image file\n");
+		ok = 0;
+		goto done;
 	      }
 
 	    /* write track data */
@@ -726,7 +765,6 @@ int dmk_seek (dmk_handle h,
 	      int head)
 {
   track_state_t *new_track;
-  uint8_t idam_table [2 * DMK_MAX_SECTOR];
   int i;
 
   if ((cylinder < 0) || (cylinder >= h->cylinders))
@@ -764,36 +802,16 @@ int dmk_seek (dmk_handle h,
 	      diag ("error seeking image file\n");
 	      goto fail;
 	    }
-	  if (1 != fread (idam_table, sizeof (idam_table), 1, h->f))
+	  if (1 != fread (new_track->idam_table, sizeof (new_track->idam_table), 1, h->f))
 	    {
 	      diag ("error reading image file\n");
 	      goto fail;
 	    }
-	  for (i = 0; i < DMK_MAX_SECTOR; i++)
+	  new_track->idam_table_valid = 1;
+	  if (! decode_idam_table (h, new_track))
 	    {
-	      uint16_t idam_ptr, idam_flags;
-	      idam_ptr = idam_table [2 * i + 1] << 8 | idam_table [2 * i];
-	      /* like dmk2cw, 0 or 0xffff ends the table */
-	      if ((idam_ptr == 0) || (idam_ptr == 0xffff))
-		break;
-	      idam_flags = idam_ptr & DMK_IDAM_POINTER_FLAGS_MASK;
-	      idam_ptr &= ~ DMK_IDAM_POINTER_FLAGS_MASK;
-	      if (idam_ptr == 0)
-		break;
-	      if (idam_ptr < (2 * DMK_MAX_SECTOR))
-		{
-		  diag ("IDAM pointer out of range\n");
-		  goto fail;
-		}
-	      idam_ptr -= 2 * DMK_MAX_SECTOR;
-	      if (h->rx02)
-		new_track->mfm_sector [i] = DMK_RX02;
-	      else if (idam_flags & DMK_IDAM_POINTER_MFM_MASK)
-		new_track->mfm_sector [i] = DMK_MFM;
-	      else
-		new_track->mfm_sector [i] = DMK_FM;
-	      new_track->idam_rsv [i] = !! (idam_flags & DMK_IDAM_POINTER_RSV_MASK);
-	      new_track->idam_pointer [i] = idam_ptr;
+	      diag ("IDAM pointer out of range\n");
+	      goto fail;
 	    }
 	  if (1 != fread (new_track->buf, h->track_length, 1, h->f))
 	    {
@@ -1043,7 +1061,7 @@ int dmk_format_track (dmk_handle h,
     return (0);
 
   memset (h->cur_track->idam_pointer, 0, sizeof (h->cur_track->idam_pointer));
-  memset (h->cur_track->idam_rsv, 0, sizeof (h->cur_track->idam_rsv));
+  h->cur_track->idam_table_valid = 0;
 
   set_p (h, 0);
 

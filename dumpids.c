@@ -100,7 +100,8 @@ bool read_id (int dev, int fm, int seek_head, int *cylinder, int *head, int *sec
   if (0 > ioctl (dev, FDRAWCMD, & cmd))
     return (0);
   
-  if (cmd.reply [0] & 0x40)
+  /* interrupt code bits 7-6 non-zero means abnormal termination */
+  if (cmd.reply [0] & 0xc0)
     return (0);
 
   *cylinder    = cmd.reply [3];

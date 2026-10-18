@@ -183,7 +183,8 @@ int dmk_format_track (dmk_handle h,
 		      const sector_info_t *sector_info);
 
 /* dmk_format_track () and dmk_write_sector () don't support DMK_RX02
-   yet, and return 0 for it. */
+   yet, and return 0 for it.  They also return 0 on an image whose
+   quirks byte has DMK_QUIRK_EXTRA_DATA. */
 
 
 int dmk_read_id_with_crcs (dmk_handle h,

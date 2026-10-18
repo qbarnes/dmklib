@@ -1037,6 +1037,9 @@ static int write_data_field (dmk_handle h,
   write_buf_count_data (h, & fmt->id_gap [1]);
   init_crc (h);
   write_buf_count_data_clock (h, & fmt->data_mark [0]);
+  /* with cw2dmk's DATA_CRC quirk, the MFM premarks aren't in the CRC */
+  if ((sector_info->mode == DMK_MFM) && (h->header [5] & DMK_QUIRK_DATA_CRC))
+    init_crc (h);
   write_buf_count_data_clock (h, & fmt->data_mark [1]);
   if (single_value)
     write_buf_const (h, si_sector_size (sector_info), *data);
@@ -1080,7 +1083,8 @@ static int read_data_field_with_crcs (dmk_handle h,
     h->cur_mode = DMK_MFM;
 
   init_crc (h);
-  if (sector_info->mode == DMK_MFM)
+  if ((sector_info->mode == DMK_MFM) &&
+      ! (h->header [5] & DMK_QUIRK_DATA_CRC))
     {
       /* In MFM, the three A1 bytes are included in the CRC */
       compute_crc (h, 0xa1);
@@ -1089,6 +1093,13 @@ static int read_data_field_with_crcs (dmk_handle h,
     }
   compute_crc (h, b);  /* the data mark is included in the CRC */
   read_buf (h, si_sector_size (sector_info), data);
+  if (h->header [5] & DMK_QUIRK_EXTRA_DATA)
+    {
+      /* covered by the CRC, but not returned, so callers' buffers
+	 sized by dmk_sector_size () stay large enough */
+      uint8_t extra [4];
+      read_buf (h, sizeof (extra), extra);
+    }
   int ret = (check_crc (h) && ! h->overrun) ? 1 : -1;
   if (actual_crc)   *actual_crc   = h->actual_crc;
   if (computed_crc) *computed_crc = h->crc;
@@ -1240,6 +1251,10 @@ int dmk_format_track (dmk_handle h,
   if (mode == DMK_RX02)
     return (0);
 
+  /* the content of cw2dmk's EXTRA_DATA bytes isn't defined */
+  if (h->header [5] & DMK_QUIRK_EXTRA_DATA)
+    return (0);
+
   h->cur_mode = mode;
   fmt = & track_format [mode];
 
@@ -1270,7 +1285,10 @@ int dmk_format_track (dmk_handle h,
 #endif /* DEBUG_CRC */
 
       write_buf_count_data_clock (h, & fmt->id_address_mark [0]);
-      
+      /* with cw2dmk's ID_CRC quirk, the MFM premarks aren't in the CRC */
+      if ((mode == DMK_MFM) && (h->header [5] & DMK_QUIRK_ID_CRC))
+	init_crc (h);
+
       h->cur_track->idam_pointer [sector] = h->p;
 #if 0
       fprintf (stderr, "sector %d IDAM pointer %d\n", sector, h->p);
@@ -1343,10 +1361,23 @@ int dmk_format_track (dmk_handle h,
 }
 
 
+/* For MFM, the ID CRC includes the three A1 bytes, unless the image
+   was read with cw2dmk's ID CRC quirk. */
+static void crc_id_premark (dmk_handle h, track_format_t *fmt)
+{
+  int j;
+
+  if ((h->cur_mode == DMK_MFM) && (h->header [5] & DMK_QUIRK_ID_CRC))
+    return;
+  for (j = 0; j < fmt->id_address_mark [0].count; j++)
+    compute_crc (h, fmt->id_address_mark [0].data);
+}
+
+
 static int find_address_mark (dmk_handle h,
 			      const sector_info_t *req_sector)
 {
-  int i, j;
+  int i;
   uint8_t mark;
   sector_info_t sector_info;
   track_format_t *fmt;
@@ -1377,9 +1408,7 @@ static int find_address_mark (dmk_handle h,
 
       init_crc (h);
 
-      /* for MFM, CRC includes the three A1 bytes */
-      for (j = 0; j < fmt->id_address_mark [0].count; j++)
-	compute_crc (h, fmt->id_address_mark [0].data);
+      crc_id_premark (h, fmt);
 
       /* is it actually an address mark? */
       mark = read_buf_byte (h);
@@ -1422,7 +1451,6 @@ int dmk_read_id_with_crcs (dmk_handle h,
 			   uint16_t *actual_crc,
 			   uint16_t *computed_crc)
 {
-  int j;
   uint8_t mark;
   track_format_t *fmt;
 
@@ -1453,9 +1481,7 @@ int dmk_read_id_with_crcs (dmk_handle h,
 
   init_crc (h);
 
-  /* for MFM, CRC includes the three A1 bytes */
-  for (j = 0; j < fmt->id_address_mark [0].count; j++)
-    compute_crc (h, fmt->id_address_mark [0].data);
+  crc_id_premark (h, fmt);
 
   /* is it actually an address mark? */
   mark = read_buf_byte (h);
@@ -1536,6 +1562,10 @@ int dmk_write_sector (dmk_handle h,
 
   /* RX02 writing isn't implemented, see dmk_format_track () */
   if (sector_info->mode == DMK_RX02)
+    return (0);
+
+  /* the content of cw2dmk's EXTRA_DATA bytes isn't defined */
+  if (h->header [5] & DMK_QUIRK_EXTRA_DATA)
     return (0);
 
   /* find address mark */

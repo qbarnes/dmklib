@@ -116,7 +116,7 @@ static track_format_t track_format [MAX_SECTOR_MODE] =
     /* post_data_gap */         {{  1, 0x4e },       {  3, 0x4e }},
     /* gap_4_data */            0x4e
   },
-  { /* RX02 */
+  { /* RX02, FM except for the data and CRC bytes of a data field */
     /* pre_index_gap */         {{ 40, 0xff },       {  6, 0x00 }},
     /* index_mark */            {{  0, 0x00, 0x00 }, {  1, 0xfc, 0xd7 }},
     /* pre_sector_gap */        {{ 26, 0xff },       {  6, 0x00 }},
@@ -124,8 +124,8 @@ static track_format_t track_format [MAX_SECTOR_MODE] =
     /* id_address_mark */       {{  0, 0x00, 0x00 }, {  1, 0xfe, 0x00 }},
     /* address_field_length */  7,
     /* id_gap */                {{ 11, 0xff },       {  6, 0x00 }},
-    /* data_mark */             {{  1, 0xfb, 0xc7 }, {  0, 0x00, 0x00 }},
-    /* deleted_data_mark */     {{  1, 0xf8, 0xc7 }, {  0, 0x00, 0x00 }},
+    /* data_mark */             {{  1, 0xfd, 0xc7 }, {  0, 0x00, 0x00 }},
+    /* deleted_data_mark */     {{  1, 0xf9, 0xc7 }, {  0, 0x00, 0x00 }},
     /* data_field_overhead */   3,
     /* post_data_gap */         {{  1, 0xff },       {  0, 0x00 }},
     /* gap_4_data */            0xff
@@ -368,7 +368,7 @@ static void write_buf (dmk_handle h,
 	}
       h->cur_track->buf [h->p] = *data;
       inc_p (h);
-      if (h->dd && (h->cur_mode == DMK_FM))
+      if (h->dd && ((h->cur_mode == DMK_FM) || (h->cur_mode == DMK_RX02)))
 	{
 	  if (h->p < 0)
 	    {
@@ -1062,11 +1062,16 @@ static int write_data_field (dmk_handle h,
   if ((sector_info->mode == DMK_MFM) && (h->header [5] & DMK_QUIRK_DATA_CRC))
     init_crc (h);
   write_buf_count_data_clock (h, & fmt->data_mark [1]);
+  /* an RX02 data field is MFM after its FM data mark, as when reading */
+  if (sector_info->mode == DMK_RX02)
+    h->cur_mode = DMK_MFM;
   if (single_value)
     write_buf_const (h, si_sector_size (sector_info), *data);
   else
     write_buf       (h, si_sector_size (sector_info), data);
   write_crc (h);
+  if (sector_info->mode == DMK_RX02)
+    h->cur_mode = DMK_RX02;
   write_buf_count_data (h, & fmt->post_data_gap [0]);
 
   return (! h->overrun);
@@ -1146,14 +1151,17 @@ static int compute_gap (dmk_handle h,
   int track_overhead;
   int sector_overhead;
   int data_length;
-  int track_length;
+  int fm_times;    /* track bytes per FM byte */
+  int data_times;  /* track bytes per data field data or CRC byte */
+  int crc_length;  /* CRC bytes counted at data_times, not fm_times */
 
   fmt = & track_format [mode];
 
-  /* FM bytes are written twice on a double-density image */
-  track_length = h->track_length;
-  if (h->dd && (mode == DMK_FM))
-    track_length /= 2;
+  /* FM bytes are written twice on a double-density image, but an RX02
+     data field's data and CRC bytes are MFM, written once */
+  fm_times = (h->dd && ((mode == DMK_FM) || (mode == DMK_RX02))) ? 2 : 1;
+  data_times = (mode == DMK_RX02) ? 1 : fm_times;
+  crc_length = (mode == DMK_RX02) ? 2 : 0;
 
   track_overhead = (fmt->pre_index_gap [0].count +
 		    fmt->pre_index_gap [1].count +
@@ -1172,15 +1180,18 @@ static int compute_gap (dmk_handle h,
   for (sector = 0; sector < sector_count; sector++)
     data_length += (si_sector_size (&sector_info [sector]));
 
-  room = track_length - (track_overhead +
-			  (sector_count * sector_overhead) +
-			  data_length);
+  room = h->track_length - (fm_times * (track_overhead +
+					 (sector_count *
+					  (sector_overhead - crc_length))) +
+			     data_times * (data_length +
+					   sector_count * crc_length));
 
-  /* what's left needs to be divided up for the gap */
-  gap = room / sector_count;
+  /* what's left needs to be divided up for the gap, whose bytes are
+     FM ones for FM and RX02 */
+  gap = room / (sector_count * fm_times);
 
 #ifdef DEBUG_GAP
-  fprintf (stderr, "track_length: %d\n", track_length);
+  fprintf (stderr, "track_length: %d\n", h->track_length);
   fprintf (stderr, "track_overhead: %d\n", track_overhead);
   fprintf (stderr, "sector_overhead: %d per sector\n", sector_overhead);
   fprintf (stderr, "data_length: %d\n", data_length);
@@ -1267,9 +1278,8 @@ int dmk_format_track (dmk_handle h,
   if ((mode != DMK_FM) && ! h->dd)
     return (0);
 
-  /* RX02 writing isn't implemented: the data field would need DEC's
-     data marks and MFM bytes after an FM mark */
-  if (mode == DMK_RX02)
+  /* RX02 sectors are read back as RX02 only on an RX02 image */
+  if ((mode == DMK_RX02) && ! h->rx02)
     return (0);
 
   /* the content of cw2dmk's EXTRA_DATA bytes isn't defined */
@@ -1360,21 +1370,30 @@ int dmk_format_track (dmk_handle h,
 	  write_buf_count_data (h, & fmt->post_data_gap [1]);
 	}
       else
-	write_buf_const (h,
-			 (fmt->id_gap [0].count +
-			  fmt->id_gap [1].count +
-			  fmt->id_address_mark [0].count +
-			  fmt->id_address_mark [1].count +
-			  (si_sector_size (&sector_info [sector])) +
-			  2 + /* CRC */
-			  fmt->post_data_gap [0].count +
-			  fmt->post_data_gap [1].count),
-			 fmt->id_gap [0].data);
+	{
+	  /* fill the space the data field would take, with its data
+	     and CRC bytes written once for RX02, as a data field's are */
+	  write_buf_const (h,
+			   (fmt->id_gap [0].count +
+			    fmt->id_gap [1].count +
+			    fmt->id_address_mark [0].count +
+			    fmt->id_address_mark [1].count +
+			    fmt->post_data_gap [0].count +
+			    fmt->post_data_gap [1].count),
+			   fmt->id_gap [0].data);
+	  if (mode == DMK_RX02)
+	    h->cur_mode = DMK_MFM;
+	  write_buf_const (h,
+			   (si_sector_size (&sector_info [sector])) +
+			   2, /* CRC */
+			   fmt->id_gap [0].data);
+	  h->cur_mode = mode;
+	}
     }
 
   /* fill rest of track (gap 4) */
   gap4_len = (h->p < 0) ? 0 : (h->track_length - h->p);
-  if (h->dd && (h->cur_mode == DMK_FM))
+  if (h->dd && ((h->cur_mode == DMK_FM) || (h->cur_mode == DMK_RX02)))
     gap4_len /= 2;
   write_buf_const (h, gap4_len, fmt->gap_4_data);
 
@@ -1581,8 +1600,8 @@ int dmk_write_sector (dmk_handle h,
 {
   int count;
 
-  /* RX02 writing isn't implemented, see dmk_format_track () */
-  if (sector_info->mode == DMK_RX02)
+  /* RX02 sectors are read back as RX02 only on an RX02 image */
+  if ((sector_info->mode == DMK_RX02) && ! h->rx02)
     return (0);
 
   /* the content of cw2dmk's EXTRA_DATA bytes isn't defined */
@@ -1598,7 +1617,7 @@ int dmk_write_sector (dmk_handle h,
 
   /* skip first part of ID gap before commencing write */
   count = track_format [h->cur_mode].id_gap [0].count;
-  if (h->dd && (h->cur_mode == DMK_FM))
+  if (h->dd && ((h->cur_mode == DMK_FM) || (h->cur_mode == DMK_RX02)))
     count *= 2;
   advance_p (h, count);
   

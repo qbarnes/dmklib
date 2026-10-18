@@ -421,6 +421,15 @@ dmk_handle dmk_open_image (char *fn,
       goto fail;
     }
 
+  /* the file names a real drive rather than holding an image */
+  if (((uint32_t) dmk_header [15] << 24 | dmk_header [14] << 16 |
+       dmk_header [13] << 8 | dmk_header [12]) == DMK_REAL_DISK)
+    {
+      fprintf (stderr, "DMK file refers to a real disk\n");
+      errno = EINVAL;
+      goto fail;
+    }
+
   *ds = h->ds;
   *cylinders = h->cylinders;
   *dd = h->dd;

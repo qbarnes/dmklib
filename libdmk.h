@@ -162,8 +162,9 @@ dmk_handle dmk_open_image (const char *fn,
  * Returns NULL with errno set to EINVAL if the write protect byte isn't
  * 0x00 or 0xff, the header has no tracks, a track length that leaves no
  * room after the IDAM pointer table, or real_format set to
- * DMK_REAL_DISK (a pointer to a real drive, not an image).  Opening for
- * write also fails if the image is write protected.  Use
+ * DMK_REAL_DISK (a pointer to a real drive, not an image), or if the
+ * file is too short to hold every track the header describes.  Opening
+ * for write also fails if the image is write protected.  Use
  * dmk_get_header () for the header fields not returned here.
  */
 

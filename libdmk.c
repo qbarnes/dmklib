@@ -422,6 +422,7 @@ dmk_handle dmk_open_image (const char *fn,
 {
   dmk_handle h;
   uint8_t *dmk_header;
+  long file_size;
 
   h = calloc (1, sizeof (struct dmk_state));
   if (! h)
@@ -473,6 +474,20 @@ dmk_handle dmk_open_image (const char *fn,
        dmk_header [13] << 8 | dmk_header [12]) == DMK_REAL_DISK)
     {
       diag ("DMK file refers to a real disk\n");
+      errno = EINVAL;
+      goto fail;
+    }
+
+  /* the file must hold every track the header claims */
+  if (0 != fseek (h->f, 0, SEEK_END))
+    goto fail;
+  file_size = ftell (h->f);
+  if (file_size < 0)
+    goto fail;
+  if (file_size < (DMK_HEADER_LENGTH +
+		   (long) h->cylinders * (h->ds + 1) *
+		   (h->track_length + 2 * DMK_MAX_SECTOR)))
+    {
       errno = EINVAL;
       goto fail;
     }

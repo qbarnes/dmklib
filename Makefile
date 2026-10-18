@@ -33,6 +33,11 @@ LDFLAGS ?= -g
 # let me know why so I can improve this Makefile.
 # -----------------------------------------------------------------------------
 
+# directory holding this Makefile and the sources, so that
+# "make -f <dir>/Makefile" can build in another directory
+srcdir := $(patsubst %/,%,$(dir $(lastword $(MAKEFILE_LIST))))
+VPATH = $(srcdir)
+
 PACKAGE = dmklib
 VERSION = 0.31
 DISTNAME = $(PACKAGE)-$(VERSION)
@@ -53,7 +58,7 @@ SOURCES = libdmk.c rfloppy.c dmkformat.c dmk2raw.c dumpids.c
 
 DEFINES = -DDMKLIB_VERSION=$(VERSION)
 DEPFLAGS = -MMD -MP
-override CPPFLAGS += $(DEFINES) $(DEPFLAGS)
+override CPPFLAGS += -I$(srcdir) $(DEFINES) $(DEPFLAGS)
 
 OTHERSRC = Makefile
 MISC = COPYING README
@@ -78,7 +83,7 @@ snap: $(SNAPNAME).tar.gz
 %.tar.gz: $(DISTFILES)
 	-rm -rf $@ $*
 	mkdir $*
-	for f in $(DISTFILES); do ln $$f $*/$$f; done
+	for f in $(DISTFILES); do cp -p $(srcdir)/$$f $*/$$f; done
 	tar --gzip -chf $@ $*
 	-rm -rf $*
 

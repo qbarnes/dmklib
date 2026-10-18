@@ -25,6 +25,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "libdmk.h"
 
@@ -130,30 +131,33 @@ int main (int argc, char *argv[])
 
 	for (sector = min_sector; sector <= max_sector; sector++)
 	  {
-	    if (dmk_read_sector (h,
-				 & sector_info [sector_index [sector]],
-				 buf))
+	    int size = dmk_sector_size (& sector_info [sector_index [sector]]);
+
+	    if (! dmk_read_sector (h,
+				   & sector_info [sector_index [sector]],
+				   buf))
 	      {
-#if 0
-		printf ("cyl %d head %d sector %d size code %d:\n",
+		printf ("error reading cyl %d head %d sector %d size code %d\n",
 			sector_info [sector_index [sector]].cylinder,
 			sector_info [sector_index [sector]].head,
 			sector_info [sector_index [sector]].sector,
 			sector_info [sector_index [sector]].size_code);
-		hex_dump (buf, dmk_sector_size (& sector_info [sector_index [sector]]));
-#endif
-		if (1 != fwrite (buf, dmk_sector_size (& sector_info [sector_index [sector]]), 1, outf))
-		  {
-		    fprintf (stderr, "error writing raw file\n");
-		    exit (2);
-		  }
+		/* keep later sectors at their offsets in the raw file */
+		memset (buf, 0xe5, size);
 	      }
-	    else
-	      printf ("error reading cyl %d head %d sector %d size code %d\n",
-		      sector_info [sector_index [sector]].cylinder,
-		      sector_info [sector_index [sector]].head,
-		      sector_info [sector_index [sector]].sector,
-		      sector_info [sector_index [sector]].size_code);
+#if 0
+	    printf ("cyl %d head %d sector %d size code %d:\n",
+		    sector_info [sector_index [sector]].cylinder,
+		    sector_info [sector_index [sector]].head,
+		    sector_info [sector_index [sector]].sector,
+		    sector_info [sector_index [sector]].size_code);
+	    hex_dump (buf, size);
+#endif
+	    if (1 != fwrite (buf, size, 1, outf))
+	      {
+		fprintf (stderr, "error writing raw file\n");
+		exit (2);
+	      }
 	  }
       }
 

@@ -948,7 +948,7 @@ int dmk_format_track (dmk_handle h,
 
   /* can't write double-density track to a
      single-density image */
-  if (mode & ! h->dd)
+  if ((mode != DMK_FM) && ! h->dd)
     return (0);
 
   h->cur_mode = mode;

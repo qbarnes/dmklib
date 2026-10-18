@@ -143,6 +143,15 @@ dmk_handle dmk_open_image (const char *fn,
 			   int *cylinders,
 			   int *dd);
 
+/*
+ * Returns NULL with errno set to EINVAL if the header has no tracks, a
+ * track length that leaves no room after the IDAM pointer table, or
+ * real_format set to DMK_REAL_DISK (a pointer to a real drive, not an
+ * image).  Opening for write also fails if the image is write
+ * protected.  Use dmk_get_header () for the header fields not returned
+ * here.
+ */
+
 int dmk_close_image (dmk_handle h);
 
 

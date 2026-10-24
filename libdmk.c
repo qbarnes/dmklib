@@ -394,6 +394,8 @@ dmk_handle dmk_open_image (char *fn,
   if (1 != fread (dmk_header, sizeof (dmk_header), 1, h->f))
     {
       fprintf (stderr, "error reading DMK header\n");
+      if (! ferror (h->f))
+	errno = EINVAL;
       goto fail;
     }
 

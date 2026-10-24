@@ -165,8 +165,9 @@ dmk_handle dmk_open_image (const char *fn,
  * DMK_REAL_DISK (a pointer to a real drive, not an image), or if the
  * file is too short to hold every track the header describes.  Opening
  * for write fails with EACCES if the image is write protected.  These
- * failures print nothing.  Use dmk_get_header () for the header fields
- * not returned here.
+ * failures print nothing.  A file too short to hold the header also
+ * fails with EINVAL, after a diagnostic.  Use dmk_get_header () for the
+ * header fields not returned here.
  */
 
 int dmk_close_image (dmk_handle h);
